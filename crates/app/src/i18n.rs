@@ -208,6 +208,125 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("msg.parse.doc", "文档 JSON 解析错误: {}");
     m.insert("msg.parse.pipeline", "管道解析错误: {}");
     m.insert("msg.check_name_host", "请检查名称与主机");
+    m.insert("msg.connected", "已连接到 {} (MongoDB {})");
+
+    m.insert("view.table", "表格视图");
+    m.insert("view.tree", "树形视图");
+    m.insert("view.text", "文本视图");
+    m.insert("view.custom", "自定义");
+
+    m.insert("menu.file", "文件");
+    m.insert("menu.view", "视图");
+    m.insert("menu.options", "选项");
+    m.insert("menu.window", "窗口");
+    m.insert("menu.help", "帮助");
+    m.insert("menu.exit", "退出");
+    m.insert("menu.open", "打开...");
+    m.insert("menu.save", "保存");
+    m.insert("menu.save_as", "另存为...");
+    m.insert("menu.refresh", "刷新");
+    m.insert("menu.about", "关于 Rubo3T...");
+    m.insert("menu.disconnect", "断开连接");
+    m.insert("menu.view_mode", "默认视图模式");
+    m.insert("menu.display_dates", "日期显示方式");
+    m.insert("menu.utc", "UTC");
+    m.insert("menu.local_time", "本地时间");
+    m.insert("menu.uuid", "旧版 UUID 编码");
+    m.insert("menu.uuid_default", "不解码(原样显示)");
+    m.insert("menu.uuid_java", "使用 Java 编码");
+    m.insert("menu.uuid_dotnet", "使用 .NET 编码");
+    m.insert("menu.uuid_python", "使用 Python 编码");
+    m.insert("menu.autocomplete", "自动补全模式");
+    m.insert("menu.autocomplete_all", "全部");
+    m.insert("menu.autocomplete_no_coll", "全部(不含集合名)");
+    m.insert("menu.autocomplete_none", "无");
+    m.insert("menu.load_mongorc", "加载 .mongorc.js");
+    m.insert("menu.auto_expand", "自动展开首个文档");
+    m.insert("menu.line_numbers", "默认显示行号");
+    m.insert("menu.auto_exec", "新标签页自动执行代码");
+    m.insert("menu.disable_conn_shortcuts", "禁用连接快捷键");
+    m.insert("menu.full_screen", "全屏");
+    m.insert("menu.next_tab", "下一个标签");
+    m.insert("menu.prev_tab", "上一个标签");
+    m.insert("menu.reexec", "重新执行当前标签查询");
+    m.insert("menu.duplicate_tab", "复制查询到新标签");
+
+    m.insert("toolbar.connect", "连接");
+    m.insert("toolbar.refresh", "刷新");
+    m.insert("toolbar.execute", "执行");
+    m.insert("toolbar.stop", "停止");
+    m.insert("toolbar.rotate", "旋转结果方向");
+
+    m.insert("tab.close", "关闭标签");
+
+    m.insert("explorer.title", "数据库资源管理器");
+    m.insert("explorer.server", "服务器");
+    m.insert("explorer.collections", "集合");
+    m.insert("explorer.functions", "函数");
+    m.insert("explorer.users", "用户");
+    m.insert("explorer.indexes", "索引");
+    m.insert("explorer.expand", "展开");
+    m.insert("explorer.collapse", "折叠");
+
+    m.insert("welcome.title", "欢迎");
+    m.insert("welcome.heading", "欢迎使用 Rubo3T");
+    m.insert("welcome.sub", "Rust 重写的 MongoDB 管理工具 · 支持 MongoDB 3.x → 8.x / 集群 / RDS");
+    m.insert("welcome.open_connect", "打开连接管理");
+    m.insert("welcome.tip", "从顶部「连接」按钮或菜单「文件 → 连接…」选择连接");
+
+    m.insert("query.run", "执行");
+    m.insert("query.new_doc", "新建文档");
+    m.insert("query.doc_count", "文档数");
+    m.insert("query.paging", "分页");
+    m.insert("query.prev", "上一页");
+    m.insert("query.next", "下一页");
+    m.insert("query.time", "耗时");
+    m.insert("query.tab_title", "查询");
+
+    m.insert("doc.view", "查看文档");
+    m.insert("doc.edit", "编辑文档");
+    m.insert("doc.copy_value", "复制值");
+    m.insert("doc.copy_name", "复制名称");
+    m.insert("doc.copy_path", "复制路径");
+    m.insert("doc.copy_json", "复制 JSON");
+    m.insert("doc.insert_doc", "插入文档...");
+    m.insert("doc.delete_doc", "删除文档...");
+
+    m.insert("dialog.conn_title", "MongoDB 连接");
+    m.insert("dialog.conn_name", "名称");
+    m.insert("dialog.conn_address", "地址");
+    m.insert("dialog.conn_attr", "属性");
+    m.insert("dialog.conn_auth", "认证库 / 用户");
+    m.insert("dialog.conn_create", "新建");
+    m.insert("dialog.conn_edit", "编辑");
+    m.insert("dialog.conn_remove", "移除");
+    m.insert("dialog.conn_clone", "克隆");
+    m.insert("dialog.conn_connect", "连接");
+    m.insert("dialog.conn_cancel", "取消");
+    m.insert("dialog.conn_reorder", "或拖拽排序连接");
+    m.insert("dialog.conn_confirm_remove", "确定要删除 “{}” 连接吗?");
+
+    m.insert("settings.title", "连接设置");
+    m.insert("settings.tab_connection", "连接");
+    m.insert("settings.tab_auth", "认证");
+    m.insert("settings.tab_ssh", "SSH");
+    m.insert("settings.tab_tls", "TLS");
+    m.insert("settings.tab_advanced", "高级");
+    m.insert("settings.test", "测试");
+    m.insert("settings.default_db", "默认数据库");
+    m.insert("settings.from_uri", "从 URI 导入");
+    m.insert("settings.uri_placeholder", "从 MongoDB URI 连接字符串导入连接详情");
+
+    m.insert("logs.title", "日志");
+    m.insert("logs.toggle", "日志");
+    m.insert("logs.empty", "(暂无日志)");
+
+    m.insert("about.title", "关于 Rubo3T");
+    m.insert("about.line1", "Rubo3T —— 用 Rust 重写的 MongoDB 管理工具");
+    m.insert("about.line2", "UI 复刻 Robo 3T 1.4.4 (Studio 3T)");
+    m.insert("about.line3", "驱动: 官方 mongodb-rust 3.8.x · 支持 MongoDB 3.x → 8.x");
+
+    m.insert("options.title", "选项");
     m
 });
 
@@ -366,5 +485,124 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("msg.parse.doc", "Document JSON parse error: {}");
     m.insert("msg.parse.pipeline", "Pipeline parse error: {}");
     m.insert("msg.check_name_host", "please check name and host");
+    m.insert("msg.connected", "Connected to {} (MongoDB {})");
+
+    m.insert("view.table", "Table View");
+    m.insert("view.tree", "Tree View");
+    m.insert("view.text", "Text View");
+    m.insert("view.custom", "Custom");
+
+    m.insert("menu.file", "File");
+    m.insert("menu.view", "View");
+    m.insert("menu.options", "Options");
+    m.insert("menu.window", "Window");
+    m.insert("menu.help", "Help");
+    m.insert("menu.exit", "Exit");
+    m.insert("menu.open", "Open...");
+    m.insert("menu.save", "Save");
+    m.insert("menu.save_as", "Save As...");
+    m.insert("menu.refresh", "Refresh");
+    m.insert("menu.about", "About Rubo3T...");
+    m.insert("menu.disconnect", "Disconnect");
+    m.insert("menu.view_mode", "Default View Mode");
+    m.insert("menu.display_dates", "Display Dates In...");
+    m.insert("menu.utc", "UTC");
+    m.insert("menu.local_time", "Local Time");
+    m.insert("menu.uuid", "Legacy UUID Encoding");
+    m.insert("menu.uuid_default", "Do not decode (show as is)");
+    m.insert("menu.uuid_java", "Use Java Encoding");
+    m.insert("menu.uuid_dotnet", "Use .NET Encoding");
+    m.insert("menu.uuid_python", "Use Python Encoding");
+    m.insert("menu.autocomplete", "Autocompletion Mode");
+    m.insert("menu.autocomplete_all", "All");
+    m.insert("menu.autocomplete_no_coll", "All (Except Collection Names)");
+    m.insert("menu.autocomplete_none", "None");
+    m.insert("menu.load_mongorc", "Load .mongorc.js");
+    m.insert("menu.auto_expand", "Auto Expand First Document");
+    m.insert("menu.line_numbers", "Show Line Numbers By Default");
+    m.insert("menu.auto_exec", "Automatically execute code in new tab");
+    m.insert("menu.disable_conn_shortcuts", "Disable Connection Shortcuts");
+    m.insert("menu.full_screen", "Full Screen");
+    m.insert("menu.next_tab", "Select Next Tab");
+    m.insert("menu.prev_tab", "Select Previous Tab");
+    m.insert("menu.reexec", "Re-execute Query in Current Tab");
+    m.insert("menu.duplicate_tab", "Duplicate Query in New Tab");
+
+    m.insert("toolbar.connect", "Connect");
+    m.insert("toolbar.refresh", "Refresh");
+    m.insert("toolbar.execute", "Execute");
+    m.insert("toolbar.stop", "Stop");
+    m.insert("toolbar.rotate", "Rotate");
+
+    m.insert("tab.close", "Close Tab");
+
+    m.insert("explorer.title", "Database Explorer");
+    m.insert("explorer.server", "Server");
+    m.insert("explorer.collections", "Collections");
+    m.insert("explorer.functions", "Functions");
+    m.insert("explorer.users", "Users");
+    m.insert("explorer.indexes", "Indexes");
+    m.insert("explorer.expand", "Expand");
+    m.insert("explorer.collapse", "Collapse");
+
+    m.insert("welcome.title", "Welcome");
+    m.insert("welcome.heading", "Welcome to Rubo3T");
+    m.insert("welcome.sub", "MongoDB admin tool in Rust · supporting MongoDB 3.x → 8.x / cluster / RDS");
+    m.insert("welcome.open_connect", "Open Connection Manager");
+    m.insert("welcome.tip", "Choose a connection from the Connect button or File → Connect...");
+
+    m.insert("query.run", "Run");
+    m.insert("query.new_doc", "New Document");
+    m.insert("query.doc_count", "Documents");
+    m.insert("query.paging", "Paging");
+    m.insert("query.prev", "Previous");
+    m.insert("query.next", "Next");
+    m.insert("query.time", "Elapsed");
+    m.insert("query.tab_title", "Query");
+
+    m.insert("doc.view", "View Document");
+    m.insert("doc.edit", "Edit Document");
+    m.insert("doc.copy_value", "Copy Value");
+    m.insert("doc.copy_name", "Copy Name");
+    m.insert("doc.copy_path", "Copy Path");
+    m.insert("doc.copy_json", "Copy JSON");
+    m.insert("doc.insert_doc", "Insert Document...");
+    m.insert("doc.delete_doc", "Delete Document...");
+
+    m.insert("dialog.conn_title", "MongoDB Connections");
+    m.insert("dialog.conn_name", "Name");
+    m.insert("dialog.conn_address", "Address");
+    m.insert("dialog.conn_attr", "Attributes");
+    m.insert("dialog.conn_auth", "Auth. Database / User");
+    m.insert("dialog.conn_create", "Create");
+    m.insert("dialog.conn_edit", "Edit");
+    m.insert("dialog.conn_remove", "Remove");
+    m.insert("dialog.conn_clone", "Clone");
+    m.insert("dialog.conn_connect", "Connect");
+    m.insert("dialog.conn_cancel", "Cancel");
+    m.insert("dialog.conn_reorder", "or reorder connections via drag'n'drop");
+    m.insert("dialog.conn_confirm_remove", "Are you sure you want to delete the '{}' connection?");
+
+    m.insert("settings.title", "Connection Settings");
+    m.insert("settings.tab_connection", "Connection");
+    m.insert("settings.tab_auth", "Authentication");
+    m.insert("settings.tab_ssh", "SSH");
+    m.insert("settings.tab_tls", "TLS");
+    m.insert("settings.tab_advanced", "Advanced");
+    m.insert("settings.test", "Test");
+    m.insert("settings.default_db", "Default Database");
+    m.insert("settings.from_uri", "From URI");
+    m.insert("settings.uri_placeholder", "Import connection details from MongoDB URI connection string");
+
+    m.insert("logs.title", "Logs");
+    m.insert("logs.toggle", "Logs");
+    m.insert("logs.empty", "(no logs)");
+
+    m.insert("about.title", "About Rubo3T");
+    m.insert("about.line1", "Rubo3T —— MongoDB admin tool rewritten in Rust");
+    m.insert("about.line2", "UI clone of Robo 3T 1.4.4 (Studio 3T)");
+    m.insert("about.line3", "Driver: official mongodb-rust 3.8.x · supports MongoDB 3.x → 8.x");
+
+    m.insert("options.title", "Options");
     m
 });
