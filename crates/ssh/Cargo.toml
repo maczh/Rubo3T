@@ -1,0 +1,8 @@
+[package]
+name = "rubo3t-ssh"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rubo3t-core = { path = "../core" }

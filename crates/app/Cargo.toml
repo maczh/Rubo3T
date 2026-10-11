@@ -1,0 +1,22 @@
+[package]
+name = "rubo3t"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rubo3t"
+path = "src/main.rs"
+
+[dependencies]
+rubo3t-core = { path = "../core" }
+rubo3t-mongo = { path = "../mongo" }
+rubo3t-ssh = { path = "../ssh" }
+tokio = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+egui = { workspace = true }
+eframe = { workspace = true }
+dirs = { workspace = true }
+fontdb = { workspace = true }
+once_cell = { workspace = true }
