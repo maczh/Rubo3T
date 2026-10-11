@@ -18,7 +18,6 @@ use mongodb::options::IndexOptions;
 // mongodb 的 Cursor 通过 `TryStreamExt::try_next` 逐个取出（返回 Result），
 // 该 trait 来自 futures-util；本 crate 需显式引入才能调用。
 use futures_util::TryStreamExt;
-use mongodb::results::CollectionType;
 use mongodb::Client;
 
 use rubo3t_core::domain::{
@@ -130,27 +129,15 @@ impl MongoService {
     pub async fn list_collections(&self, db: &str) -> RuboResult<Vec<CollectionInfo>> {
         let database = self.database(db);
         let mut cursor = database
-            .list_collections()
+            .run_cursor_command(doc! {
+                "listCollections": 1,
+                "nameOnly": false,
+            })
             .await
             .map_err(map_err)?;
         let mut out = Vec::new();
-        while let Some(spec) = cursor
-            .try_next()
-            .await
-            .map_err(map_err)?
-        {
-            let name = spec.name.clone();
-            let kind = if spec.collection_type == CollectionType::View {
-                CollectionKind::View
-            } else {
-                CollectionKind::Collection
-            };
-            out.push(CollectionInfo {
-                name,
-                kind,
-                size_bytes: 0,
-                count: 0,
-            });
+        while let Some(spec) = cursor.try_next().await.map_err(map_err)? {
+            out.push(collection_info_from_spec(spec)?);
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
@@ -174,6 +161,25 @@ impl MongoService {
             action = action.sort(sort.clone());
         }
         let mut cursor = action.await.map_err(map_err)?;
+        let mut out = Vec::new();
+        while let Some(doc) = cursor.try_next().await.map_err(map_err)? {
+            out.push(doc);
+        }
+        Ok(out)
+    }
+
+    /// 执行聚合管道，返回结果文档列表。
+    pub async fn aggregate(
+        &self,
+        db: &str,
+        coll: &str,
+        pipeline: &[Document],
+    ) -> RuboResult<Vec<Document>> {
+        let collection: mongodb::Collection<Document> = self.database(db).collection(coll);
+        let mut cursor = collection
+            .aggregate(pipeline.to_vec())
+            .await
+            .map_err(map_err)?;
         let mut out = Vec::new();
         while let Some(doc) = cursor.try_next().await.map_err(map_err)? {
             out.push(doc);
@@ -328,6 +334,30 @@ impl MongoService {
         Ok(res)
     }
 
+    /// 服务器运行状态统计（connections / memory / opcounters / asserts 等）。
+    pub async fn server_status(&self, db: &str) -> RuboResult<Document> {
+        let d = self.database(db);
+        d.run_command(doc! { "serverStatus": 1 }).await.map_err(map_err)
+    }
+
+    /// 主机信息（CPU/内存/内核）。
+    pub async fn host_info(&self, db: &str) -> RuboResult<Document> {
+        let d = self.database(db);
+        d.run_command(doc! { "hostInfo": 1 }).await.map_err(map_err)
+    }
+
+    /// 副本集状态（含成员拓扑）；单机实例会报错，调用方需容错。
+    pub async fn repl_set_status(&self, db: &str) -> RuboResult<Document> {
+        let d = self.database(db);
+        d.run_command(doc! { "replSetGetStatus": 1 }).await.map_err(map_err)
+    }
+
+    /// 启动命令行参数。
+    pub async fn cmd_line_opts(&self, db: &str) -> RuboResult<Document> {
+        let d = self.database(db);
+        d.run_command(doc! { "getCmdLineOpts": 1 }).await.map_err(map_err)
+    }
+
     /// 删除集合。
     pub async fn drop_collection(&self, db: &str, coll: &str) -> RuboResult<()> {
         let collection: mongodb::Collection<Document> = self.database(db).collection(coll);
@@ -399,4 +429,57 @@ async fn detect_server_info(
 
 fn map_err(e: mongodb::error::Error) -> RuboError {
     RuboError::Mongo(e.to_string())
+}
+
+fn collection_info_from_spec(spec: Document) -> RuboResult<CollectionInfo> {
+    let name = spec
+        .get_str("name")
+        .map_err(|e| RuboError::Mongo(format!("无效的集合列表响应: {e}")))?
+        .to_string();
+    let kind = match spec.get_str("type").unwrap_or_default() {
+        "view" => CollectionKind::View,
+        "timeseries" => CollectionKind::Timeseries,
+        "collection" => CollectionKind::Collection,
+        _ => CollectionKind::Unknown,
+    };
+
+    Ok(CollectionInfo {
+        name,
+        kind,
+        size_bytes: 0,
+        count: 0,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collection_info_from_spec;
+    use mongodb::bson::doc;
+    use rubo3t_core::settings::{ConnectionSettings, Host};
+
+    #[test]
+    fn collection_spec_accepts_floating_point_size_options() {
+        let spec = doc! {
+            "name": "large_collection",
+            "type": "collection",
+            "options": { "size": 2_621_440_000.0 },
+        };
+
+        let info = collection_info_from_spec(spec).expect("collection specification should parse");
+
+        assert_eq!(info.name, "large_collection");
+        assert_eq!(info.kind, rubo3t_core::domain::CollectionKind::Collection);
+    }
+
+    #[tokio::test]
+    async fn generated_uri_with_options_parses() {
+        let mut settings = ConnectionSettings::default();
+        settings.hosts = vec![Host::new("localhost", 27017)];
+        settings.replica_set_name = Some("rs0".into());
+
+        let uri = settings.build_uri();
+        mongodb::options::ClientOptions::parse(&uri)
+            .await
+            .expect("generated MongoDB URI should parse");
+    }
 }

@@ -20,7 +20,7 @@ bson = "2"
 base64 = "0.22"
 chrono = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "rt"] }
-mongodb = ">=3.7.0, <3.9"
+mongodb = ">=3.2.0, <3.3"
 egui = "0.29"
 eframe = "0.29"
 dirs = "5"

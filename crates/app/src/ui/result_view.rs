@@ -5,18 +5,20 @@ use std::sync::Arc;
 
 use eframe::egui;
 use egui::{
-    Color32, Frame, Galley, Margin, Painter, Rounding, ScrollArea, Sense, Stroke, Ui, Vec2,
+    Color32, Frame, Galley, Id, Margin, Painter, Pos2, Rect, Rounding, ScrollArea, Sense, Stroke,
+    TextEdit, Ui, Vec2,
 };
 
 use rubo3t_core::Document;
 
 use crate::app::{AppState, ViewMode};
 use crate::icons;
+use crate::ui::syntax;
 use rubo3t_core::bson::Bson;
 
-/// 脚本编辑器 / 文本视图的背景（#494C4E）与文字（浅色）。
-const SCRIPT_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
-const SCRIPT_FG: Color32 = Color32::from_rgb(0xE6, 0xE6, 0xE6);
+/// 脚本编辑器 / 文本视图的深色背景（#121212）；文字颜色由 [`syntax`] 高亮提供。
+const SCRIPT_BG: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
+const TEXTBOX_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
 /// 表头背景（浅灰）与列分隔线。
 const HEADER_BG: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xE8);
 const SEP_COLOR: Color32 = Color32::from_rgb(0xD0, 0xD0, 0xD0);
@@ -56,22 +58,76 @@ fn type_name(value: &Bson) -> &'static str {
     match value {
         Bson::Null => "Null",
         Bson::Boolean(_) => "Boolean",
-        Bson::Int32(_) | Bson::Int64(_) | Bson::Double(_) | Bson::Decimal128(_) => "Number",
+        Bson::Int32(_) => "Int32",
+        Bson::Int64(_) => "Int64",
+        Bson::Double(_) => "Double",
+        Bson::Decimal128(_) => "Decimal128",
         Bson::String(_) => "String",
         Bson::ObjectId(_) => "ObjectId",
-        Bson::DateTime(_) => "ISODate",
+        Bson::DateTime(_) => "Date",
         Bson::Array(_) => "Array",
         Bson::Document(_) => "Object",
         Bson::Binary(_) => "Binary",
         Bson::Timestamp(_) => "Timestamp",
-        Bson::RegularExpression(_) => "Regex",
-        Bson::DbPointer(_) => "DBPointer",
-        Bson::JavaScriptCode(_) | Bson::JavaScriptCodeWithScope(_) => "Code",
+        Bson::RegularExpression(_) => "Regular Expression",
+        Bson::DbPointer(_) => "DBRef",
+        Bson::JavaScriptCode(_) => "Code",
+        Bson::JavaScriptCodeWithScope(_) => "CodeWScope",
         Bson::Symbol(_) => "Symbol",
         Bson::Undefined => "Undefined",
         Bson::MinKey => "MinKey",
         Bson::MaxKey => "MaxKey",
     }
+}
+
+/// 树视图 Value 列文本（Robo3T `BsonUtils::buildJsonString` 规则：字符串不带引号、
+/// ObjectId 显示为 `ObjectId("...")`、整型 double 补 `.0`、日期显示为 ISODate(...) 等）。
+fn value_text(value: &Bson) -> String {
+    match value {
+        Bson::Null => "null".to_string(),
+        Bson::Boolean(b) => (if *b { "true" } else { "false" }).to_string(),
+        Bson::Int32(i) => i.to_string(),
+        Bson::Int64(i) => i.to_string(),
+        Bson::Double(f) => reformat_double(*f),
+        Bson::Decimal128(d) => d.to_string(),
+        Bson::String(s) => s.clone(),
+        Bson::ObjectId(oid) => format!("ObjectId(\"{}\")", oid.to_hex()),
+        Bson::DateTime(dt) => {
+            let secs = dt.timestamp_millis() / 1000;
+            let ms = dt.timestamp_millis() % 1000;
+            format!("ISODate({}.{:03}Z)", secs, ms)
+        }
+        Bson::Binary(_) => "<binary>".to_string(),
+        Bson::Timestamp(ts) => format!("Timestamp({}, {})", ts.time, ts.increment),
+        Bson::RegularExpression(r) => format!("/{}/{}", r.pattern, r.options),
+        Bson::Symbol(s) => s.clone(),
+        Bson::Undefined => "undefined".to_string(),
+        Bson::MinKey => "MinKey".to_string(),
+        Bson::MaxKey => "MaxKey".to_string(),
+        Bson::JavaScriptCode(c) => c.clone(),
+        Bson::JavaScriptCodeWithScope(c) => c.code.clone(),
+        Bson::DbPointer(_) => "<dbpointer>".to_string(),
+        Bson::Array(a) => count_text('[', a.len(), "element", "elements"),
+        Bson::Document(d) => count_text('{', d.len(), "field", "fields"),
+    }
+}
+
+/// 整型 double 补 `.0`，避免科学计数法（对齐 Robo3T `reformatDoubleString`）。
+fn reformat_double(f: f64) -> String {
+    let s = f.to_string();
+    if s.contains('e') || s.contains('E') {
+        return format!("{:.6}", f);
+    }
+    if f.fract() == 0.0 {
+        return format!("{:.1}", f);
+    }
+    s
+}
+
+/// 计数占位文本：`{ 1 field }` / `[ 2 elements ]`（对齐 C++ `objectValue`/`arrayValue`）。
+fn count_text(brace: char, n: usize, singular: &str, plural: &str) -> String {
+    let unit = if n == 1 { singular } else { plural };
+    format!("{} {} {} ]", brace, n, unit)
 }
 
 /// 从 documents 中提取所有顶层字段名，_id 放最前。
@@ -278,81 +334,250 @@ fn doc_context_menu(ui: &mut Ui, state: &mut AppState, idx: usize) {
         state.insert_doc_open = true;
         ui.close_menu();
     }
+    if ui.button(lang.tr("doc.export")).clicked() {
+        state.export_open = true;
+        state.export_doc_index = Some(idx);
+        ui.close_menu();
+    }
+    if ui.button(lang.tr("doc.export_all")).clicked() {
+        state.export_open = true;
+        state.export_doc_index = None;
+        ui.close_menu();
+    }
+    if ui.button(lang.tr("doc.import")).clicked() {
+        state.import_open = true;
+        ui.close_menu();
+    }
     if ui.button(lang.tr("doc.delete_doc")).clicked() {
         state.delete_document(Some(idx));
         ui.close_menu();
     }
 }
 
-/// 树形视图渲染。
+/// 树形视图渲染（1:1 复刻 Robo3T BsonTreeWidget：Key/Value/Type 三列）。
+///
+/// 每个文档是一个根节点，根 Key 形如 `(序号) <_id值>`，Value 为 `{ N fields }` /
+/// `[ N elements ]`，Type 为 `Object` / `Array`。展开后递归渲染字段；嵌套的
+/// 对象/数组同样可展开。节点展开态以 `id_path` 为键持久化在 egui 上下文中，
+/// 因此不再调用 `ui.collapsing(path)`，从根本上消除了 widget ID 冲突（红字报错）。
 pub fn tree_view(ui: &mut Ui, state: &mut AppState) {
     let docs = state.documents.clone();
-    let mut clicked: Option<usize> = None;
+    draw_tree_header(ui);
+    let mut root_clicked: Option<usize> = None;
     ScrollArea::vertical().show(ui, |ui| {
         for (i, doc) in docs.iter().enumerate() {
-            let header = format!("({}) {}", i + 1, doc.get("_id").map(cell_text).unwrap_or_default());
-            let selected = state.selected_doc == Some(i);
-            let resp = ui.selectable_label(selected, header);
-            if resp.clicked() {
-                clicked = Some(i);
+            let id_val = doc
+                .get("_id")
+                .map(value_text)
+                .unwrap_or_default();
+            let root_key = format!("({}) {}", i + 1, id_val);
+            let root_path = format!("d{}", i);
+            let clicked = draw_tree_node(
+                ui,
+                i,
+                &root_path,
+                &root_key,
+                &Bson::Document(doc.clone()),
+                0,
+                true,
+                state,
+            );
+            if clicked {
+                root_clicked = Some(i);
             }
-            let idx = i;
-            resp.context_menu(|ui| {
-                doc_context_menu(ui, state, idx);
-            });
-            tree_node(ui, &Bson::Document(doc.clone()), "", i == docs.len() - 1, 0);
         }
     });
-    if let Some(i) = clicked {
+    if let Some(i) = root_clicked {
         state.select_document(i);
     }
 }
 
-fn tree_node(ui: &mut Ui, value: &Bson, path: &str, _last: bool, depth: usize) {
-    let indent = depth as f32 * 16.0;
-    ui.horizontal(|ui| {
-        ui.add_space(indent);
-        // 按 BSON 类型前缀对应图标（Robo3T 风格）
-        ui.add(icons::img(bson_icon_name(value)).fit_to_original_size(1.0));
-        match value {
-            Bson::Document(doc) => {
-                if doc.is_empty() {
-                    ui.label(format!("{} {{}}", path));
-                } else {
-                    ui.collapsing(path, |ui| {
-                        let keys: Vec<_> = doc.keys().map(|s| s.to_string()).collect();
-                        for (idx, key) in keys.iter().enumerate() {
-                            let child_path = if path.is_empty() {
-                                key.clone()
-                            } else {
-                                format!("{}: {}", path, key)
-                            };
-                            let child = doc.get(key).unwrap_or(&Bson::Null);
-                            tree_node(ui, child, &child_path, idx == keys.len() - 1, depth + 1);
-                        }
-                    });
-                }
-            }
-            Bson::Array(arr) => {
-                if arr.is_empty() {
-                    ui.label(format!("{} []", path));
-                } else {
-                    ui.collapsing(path, |ui| {
-                        for (idx, item) in arr.iter().enumerate() {
-                            let child_path = format!("{}[{}]", path, idx);
-                            tree_node(ui, item, &child_path, idx == arr.len() - 1, depth + 1);
-                        }
-                    });
-                }
-            }
-            _ => {
-                ui.label(format!("{} = {}  ({})", path, cell_text(value), type_name(value)));
-            }
-        }
-    });
+/// 绘制表头：Key / Value / Type（浅灰背景，与 Robo3T 一致）。
+fn draw_tree_header(ui: &mut Ui) {
+    let row_h = 22.0;
+    let avail = ui.available_width();
+    let key_w = (avail * 0.45).max(80.0);
+    let value_w = (avail * 0.40).max(60.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(avail, row_h), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, Rounding::ZERO, HEADER_BG);
+    let strong = ui.visuals().strong_text_color();
+    tree_text(ui, &painter, rect.left() + 6.0, rect.center().y, "Key", strong);
+    tree_text(ui, &painter, rect.left() + key_w + 6.0, rect.center().y, "Value", strong);
+    tree_text(
+        ui,
+        &painter,
+        rect.left() + key_w + value_w + 6.0,
+        rect.center().y,
+        "Type",
+        strong,
+    );
 }
 
-/// 根据 BSON 值类型返回对应的图标 URI 名称。
+/// 递归绘制一个树节点（一行），并在展开时递归绘制其子节点。
+/// 返回该节点是否为文档根行被点击（用于选中文档并在文本视图中展示）。
+fn draw_tree_node(
+    ui: &mut Ui,
+    doc_idx: usize,
+    id_path: &str,
+    key: &str,
+    value: &Bson,
+    depth: usize,
+    is_root: bool,
+    state: &mut AppState,
+) -> bool {
+    let row_h = 20.0;
+    let avail = ui.available_width();
+    let key_w = (avail * 0.45).max(80.0);
+    let value_w = (avail * 0.40).max(60.0);
+
+    let expandable = matches!(value, Bson::Document(_) | Bson::Array(_));
+    let open_id = Id::new(("tree_open", id_path));
+    let is_open = if expandable {
+        ui.ctx()
+            .data(|d| d.get_temp::<bool>(open_id))
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(avail, row_h), Sense::click());
+    let painter = ui.painter_at(rect);
+
+    let selected = is_root && state.selected_doc == Some(doc_idx);
+    if selected {
+        painter.rect_filled(rect, Rounding::ZERO, ui.visuals().selection.bg_fill);
+    } else if resp.hovered() {
+        painter.rect_filled(rect, Rounding::ZERO, ui.visuals().faint_bg_color);
+    }
+
+    let indent = 6.0 + depth as f32 * 16.0;
+    let arrow_w = 16.0;
+    let icon_w = 16.0;
+
+    // 展开箭头（仅可展开节点）
+    if expandable {
+        let tri = if is_open { "▼" } else { "▶" };
+        tree_text(
+            ui,
+            &painter,
+            rect.left() + indent,
+            rect.center().y,
+            tri,
+            ui.visuals().text_color(),
+        );
+    }
+
+    // 类型图标（Key 列）
+    let icon_x = rect.left() + indent + arrow_w + 2.0;
+    let icon_rect = Rect::from_min_size(
+        Pos2::new(icon_x, rect.top() + (row_h - icon_w) / 2.0),
+        Vec2::new(icon_w, icon_w),
+    );
+    ui.put(icon_rect, icons::img(bson_icon_name(value)));
+
+    // Key 文本
+    let key_x = icon_x + icon_w + 4.0;
+    let key_color = if selected {
+        Color32::WHITE
+    } else {
+        ui.visuals().text_color()
+    };
+    tree_text(ui, &painter, key_x, rect.center().y, key, key_color);
+
+    // Value 文本（固定列）
+    let value_x = rect.left() + key_w;
+    let val_color = if selected {
+        Color32::WHITE
+    } else {
+        ui.visuals().text_color()
+    };
+    tree_text(
+        ui,
+        &painter,
+        value_x + 6.0,
+        rect.center().y,
+        &value_text(value),
+        val_color,
+    );
+
+    // Type 文本（灰色，固定列）
+    let type_x = rect.left() + key_w + value_w;
+    let type_color = if selected { Color32::WHITE } else { Color32::GRAY };
+    tree_text(
+        ui,
+        &painter,
+        type_x + 6.0,
+        rect.center().y,
+        type_name(value),
+        type_color,
+    );
+
+    // 交互：可展开节点点击折叠/展开；根节点点击选中文档
+    let mut root_clicked = false;
+    if resp.clicked() {
+        if expandable {
+            let cur = ui
+                .ctx()
+                .data(|d| d.get_temp::<bool>(open_id))
+                .unwrap_or(false);
+            ui.ctx().data_mut(|d| d.insert_temp(open_id, !cur));
+        }
+        if is_root {
+            root_clicked = true;
+        }
+    }
+
+    // 右键菜单（仅根节点）
+    if is_root {
+        resp.context_menu(|ui| {
+            doc_context_menu(ui, state, doc_idx);
+        });
+    }
+
+    // 递归展开子节点
+    if expandable && is_open {
+        match value {
+            Bson::Document(d) => {
+                for (k, v) in d.iter() {
+                    let child_path = format!("{}/{}", id_path, k);
+                    draw_tree_node(ui, doc_idx, &child_path, k, v, depth + 1, false, state);
+                }
+            }
+            Bson::Array(a) => {
+                for (idx, v) in a.iter().enumerate() {
+                    let child_path = format!("{}/{}", id_path, idx);
+                    draw_tree_node(
+                        ui,
+                        doc_idx,
+                        &child_path,
+                        &format!("[{}]", idx),
+                        v,
+                        depth + 1,
+                        false,
+                        state,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    root_clicked
+}
+
+/// 左中对齐绘制一行文本（用于在手动布局的树行上绘制 Key/Value/Type）。
+fn tree_text(ui: &Ui, painter: &Painter, x: f32, center_y: f32, text: &str, color: Color32) {
+    let style = ui.style();
+    let fid = egui::TextStyle::Body.resolve(&style);
+    let galley = ui
+        .fonts(|f| f.layout_no_wrap(text.to_string(), fid, color));
+    let pos = Pos2::new(x, center_y - galley.size().y / 2.0);
+    painter.galley(pos, galley, color);
+}
+
+/// 根据 BSON 值类型返回对应的图标 URI 名称（与 Robo3T `BsonTreeModel::getIcon` 一致：
+/// ObjectId / RegEx / DBRef / Code 等统一复用 unsupported 图标）。
 fn bson_icon_name(value: &Bson) -> &'static str {
     match value {
         Bson::Document(_) => "bson_object_16x16",
@@ -369,19 +594,51 @@ fn bson_icon_name(value: &Bson) -> &'static str {
     }
 }
 
-/// 文本/JSON 视图：深色背景、浅色等宽文字、只读。
+/// 文本/JSON 视图：黑灰底、浅色等宽文字（字符串绿色）、只读。
+///
+/// 自适应窗体宽度，**直接显示全部查询结果 JSON**（文档间逗号分隔），
+/// 无需先在表格中选中某条记录再切换 JSON 模式（对齐 Robo3T Text 视图）。
 pub fn text_view(ui: &mut Ui, state: &mut AppState) {
-    let text = state.selected_doc_text.clone();
+    let docs = state.documents.clone();
+    let mut text = if docs.is_empty() {
+        state.selected_doc_text.clone()
+    } else {
+        all_docs_text(&docs)
+    };
+    let avail = ui.available_width();
     Frame::none()
-        .fill(SCRIPT_BG)
+        .fill(TEXTBOX_BG)
         .rounding(Rounding::same(2.0))
         .inner_margin(Margin::same(4.0))
         .show(ui, |ui| {
-            ui.style_mut().visuals.override_text_color = Some(SCRIPT_FG);
+            // TextEdit 自身内底色与深色 frame 保持一致
+            ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
+            let mut layouter = |ui: &Ui, t: &str, w: f32| syntax::highlight(ui, t, w);
             ScrollArea::vertical().show(ui, |ui| {
-                ui.monospace(&text);
+                ui.add(
+                    TextEdit::multiline(&mut text)
+                        .code_editor()
+                        .desired_width((avail - 12.0).max(100.0))
+                        .layouter(&mut layouter),
+                );
             });
         });
+}
+
+/// 把全部查询结果文档拼为多行 JSON 文本（文档间以逗号分隔，含尾换行）。
+fn all_docs_text(docs: &[Document]) -> String {
+    let mut out = String::new();
+    for d in docs {
+        let t = rubo3t_core::bson_ext::document_to_text(d).unwrap_or_else(|_| "{}".to_string());
+        out.push_str(&t);
+        out.push_str(",\n");
+    }
+    // 去掉末尾多余的 ",\n"，保留一个换行
+    if out.ends_with(",\n") {
+        out.truncate(out.len() - 2);
+        out.push('\n');
+    }
+    out
 }
 
 /// 主入口：根据当前 view_mode 渲染，并收集动作。

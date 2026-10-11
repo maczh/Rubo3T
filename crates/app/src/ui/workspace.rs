@@ -11,15 +11,16 @@ use egui::{
     Rect, Rounding, ScrollArea, Sense, Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 
-use crate::app::{AppState, QueryTab, ViewMode};
+use crate::app::{AppState, QueryMode, QueryTab, ViewMode};
 use crate::icons;
 use crate::ui::result_view;
+use crate::ui::syntax;
 
 /// 标签栏背景色（与窗口浅灰一致，用于切角时填充）。
 const TAB_BAR_BG: Color32 = Color32::from_rgb(0xF0, 0xF0, 0xF0);
-/// 脚本编辑器背景（#494C4E）与文字（浅色）。
-const SCRIPT_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
-const SCRIPT_FG: Color32 = Color32::from_rgb(0xE6, 0xE6, 0xE6);
+/// 脚本编辑器背景（#121212）与文字（白色）。
+const SCRIPT_BG: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
+const SCRIPT_FG: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
 /// 顶部状态栏文字灰（#A6A6A6）。
 const STATUS_GRAY: Color32 = Color32::from_rgb(0xA6, 0xA6, 0xA6);
 
@@ -371,6 +372,7 @@ fn render_query_area(ui: &mut Ui, state: &mut AppState) {
         });
     frame.show(ui, |ui| {
         render_top_status_bar(ui, state);
+        render_query_mode_toggle(ui, state);
         render_script_editor(ui, state);
     });
     ui.separator();
@@ -413,27 +415,80 @@ fn render_top_status_bar(ui: &mut Ui, state: &mut AppState) {
     ui.add_space(3.0);
 }
 
-/// 深色脚本编辑器（背景 #494C4E、浅色文字、边框 #C7C5C4、圆角 4、等宽、自动高度）。
+/// 查询模式切换：Find / Aggregation（对齐 Robo3T 查询标签栏）。
+fn render_query_mode_toggle(ui: &mut Ui, state: &mut AppState) {
+    let lang = state.lang;
+    ui.horizontal(|ui| {
+        ui.add_space(2.0);
+        let entries = [
+            (QueryMode::Find, "query.find"),
+            (QueryMode::Aggregate, "agg.title"),
+        ];
+        for (mode, key) in entries {
+            let selected = state.query_mode == mode;
+            if ui.selectable_label(selected, lang.tr(key)).clicked() {
+                state.query_mode = mode;
+            }
+        }
+    });
+    ui.add_space(2.0);
+}
+
+/// 深色脚本编辑器（背景 #121212、白色文字、字符串绿色、边框 #C7C5C4、圆角 4、等宽、自动高度）。
 fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
-    let mut script = state.script_text.clone();
-    let lines = script.lines().count().max(1);
+    let is_agg = state.query_mode == QueryMode::Aggregate;
+    let mut buf = if is_agg {
+        state.agg_text.clone()
+    } else {
+        state.script_text.clone()
+    };
+    let lines = buf.lines().count().max(1);
     let rows = (lines as u32).clamp(1, 18) as usize;
     let frame = Frame::none()
         .fill(SCRIPT_BG)
         .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0xC7, 0xC5, 0xC4)))
         .rounding(Rounding::same(4.0))
         .inner_margin(Margin::same(2.0));
+    let mut submit_query = false;
     frame.show(ui, |ui| {
-        ui.add(
-            TextEdit::multiline(&mut script)
-                .code_editor()
-                .desired_rows(rows)
-                .desired_width(ui.available_width())
-                .text_color(SCRIPT_FG)
-                .lock_focus(true),
-        );
+        // TextEdit 使用 extreme_bg_color 绘制自身底色，而非外层 Frame 的填充色。
+        ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
+        let cursor_style = &mut ui.style_mut().visuals.text_cursor;
+        cursor_style.stroke = Stroke::new(2.0_f32, Color32::from_rgb(0x00, 0xFF, 0x00));
+        cursor_style.blink = true;
+        // 语法高亮：默认近白、字符串（单/双引号）绿色（Robo3T 深色编辑器风格）
+        let mut layouter = |ui: &Ui, text: &str, wrap_width: f32| {
+            syntax::highlight_with_fg(ui, text, wrap_width, SCRIPT_FG)
+        };
+        let mut edit = TextEdit::multiline(&mut buf)
+            .code_editor()
+            .desired_rows(rows)
+            .desired_width(ui.available_width())
+            .text_color(SCRIPT_FG)
+            .layouter(&mut layouter)
+            .lock_focus(true);
+        if is_agg {
+            edit = edit.hint_text(state.lang.tr("agg.pipeline"));
+        }
+        let response = ui.add(edit);
+        if response.has_focus()
+            && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Enter))
+        {
+            ui.input_mut(|input| {
+                let modifiers = input.modifiers;
+                input.consume_key(modifiers, egui::Key::Enter);
+            });
+            submit_query = true;
+        }
     });
-    state.script_text = script;
+    if is_agg {
+        state.agg_text = buf;
+    } else {
+        state.script_text = buf;
+    }
+    if submit_query {
+        state.run_current_query();
+    }
 }
 
 // ============================================================ 输出头

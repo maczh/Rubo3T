@@ -112,8 +112,28 @@ pub struct SslSettings {
     pub ca_file: Option<String>,
     /// 客户端证书（`tlsCertificateFile`）。
     pub cert_file: Option<String>,
-    /// 客户端私钥（`tlsCertificateKeyFile`）。
+    /// 客户端私钥（`tlsCertificateKeyFile`）；原版 PEM 模式将证书与私钥合并为一个 PEM 文件。
     pub key_file: Option<String>,
+    /// 认证方式：`allow_invalid_certs == true` 对应原版 "Self-signed Certificate"，
+    /// `false` 对应 "Use CA Certificate"。
+    /// PEM 模式开关（"Use PEM Cert./Key:" 复选框）。
+    #[serde(default)]
+    pub use_pem: bool,
+    /// PEM 私钥口令（`tlsCertificateKeyFilePassword`）。
+    #[serde(default)]
+    pub pem_passphrase: Option<String>,
+    /// 每次连接都询问 PEM 口令。
+    #[serde(default)]
+    pub ask_pem_passphrase: bool,
+    /// 高级选项（展开 CRL / 无效主机名）。
+    #[serde(default)]
+    pub advanced_options: bool,
+    /// 证书撤销列表文件（`tlsCRLFile`）。
+    #[serde(default)]
+    pub crl_file: Option<String>,
+    /// 允许无效/不匹配的主机名（`tlsAllowInvalidHostnames`）。
+    #[serde(default)]
+    pub allow_invalid_hostnames: bool,
 }
 
 impl Default for SslSettings {
@@ -124,6 +144,12 @@ impl Default for SslSettings {
             ca_file: None,
             cert_file: None,
             key_file: None,
+            use_pem: false,
+            pem_passphrase: None,
+            ask_pem_passphrase: false,
+            advanced_options: false,
+            crl_file: None,
+            allow_invalid_hostnames: false,
         }
     }
 }
@@ -149,6 +175,9 @@ pub struct SshSettings {
     pub password: String,
     pub private_key_path: Option<String>,
     pub passphrase: Option<String>,
+    /// 每次连接都询问密码 / 口令（原版 "Ask for password/passphrase each time"）。
+    #[serde(default)]
+    pub ask_password_each_time: bool,
     /// 本地监听端口（转发入口）。
     pub local_port: u16,
     /// 远端 MongoDB 主机（经跳板机可达）。
@@ -168,6 +197,7 @@ impl Default for SshSettings {
             password: String::new(),
             private_key_path: None,
             passphrase: None,
+            ask_password_each_time: false,
             local_port: 27018,
             remote_host: "docdb-cluster.cluster-xxxx.docdb.amazonaws.com".to_string(),
             remote_port: 27017,
@@ -276,14 +306,29 @@ impl ConnectionSettings {
             if self.ssl.allow_invalid_certs {
                 q.push("tlsAllowInvalidCertificates=true".to_string());
             }
-            if let Some(ca) = &self.ssl.ca_file {
+            if let Some(hostnames) = if self.ssl.allow_invalid_hostnames {
+                Some("true")
+            } else {
+                None
+            } {
+                q.push(format!("tlsAllowInvalidHostnames={}", hostnames));
+            }
+            if self.ssl.use_pem {
+                if let Some(cert) = &self.ssl.cert_file {
+                    q.push(format!("tlsCertificateKeyFile={}", encode(cert)));
+                }
+                if let Some(pass) = &self.ssl.pem_passphrase {
+                    if !pass.is_empty() {
+                        q.push(format!("tlsCertificateKeyFilePassword={}", encode(pass)));
+                    }
+                }
+            } else if let Some(ca) = &self.ssl.ca_file {
                 q.push(format!("tlsCAFile={}", encode(ca)));
             }
-            if let Some(cert) = &self.ssl.cert_file {
-                q.push(format!("tlsCertificateFile={}", encode(cert)));
-            }
-            if let Some(key) = &self.ssl.key_file {
-                q.push(format!("tlsCertificateKeyFile={}", encode(key)));
+            if let Some(crl) = &self.ssl.crl_file {
+                if !crl.is_empty() {
+                    q.push(format!("tlsCRLFile={}", encode(crl)));
+                }
             }
         }
         if self.direct_connection {
@@ -326,6 +371,7 @@ impl ConnectionSettings {
 
         let q = self.query_params();
         if !q.is_empty() {
+            uri.push('/');
             uri.push('?');
             uri.push_str(&q.join("&"));
         }
@@ -439,15 +485,16 @@ mod tests {
         c.credential.password = "pw@d".into();
         c.credential.mechanism = Some(AuthMechanism::ScramSha256);
         c.credential.auth_source = "admin".into();
+        assert!(c.build_uri().contains("/?authMechanism="));
         assert_eq!(
-            c.build_uri(),
+            c.build_uri().replace("/?", "?"),
             "mongodb://admin:pw%40d@127.0.0.1:27017?authMechanism=SCRAM-SHA-256&authSource=admin"
         );
     }
 
     #[test]
     fn uri_replica_set() {
-        let mut c = ConnectionSettings {
+        let c = ConnectionSettings {
             name: "rs".into(),
             mode: ConnectionMode::ReplicaSet,
             hosts: vec![
@@ -458,15 +505,16 @@ mod tests {
             replica_set_name: Some("rs0".into()),
             ..Default::default()
         };
+        assert!(c.build_uri().contains("/?replicaSet="));
         assert_eq!(
-            c.build_uri(),
+            c.build_uri().replace("/?", "?"),
             "mongodb://a:27017,b:27017,c:27017?replicaSet=rs0"
         );
     }
 
     #[test]
     fn uri_srv_with_tls() {
-        let mut c = ConnectionSettings {
+        let c = ConnectionSettings {
             name: "atlas".into(),
             use_srv: true,
             hosts: vec![Host::new("cluster0.mongodb.net", 0)],

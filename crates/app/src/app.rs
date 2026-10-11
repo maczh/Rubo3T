@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use rubo3t_core::bson::doc;
+use chrono::Timelike;
+use rubo3t_core::bson::{doc, Bson};
 use rubo3t_core::bson_ext;
 use rubo3t_core::domain::{CollectionInfo, DatabaseInfo, IndexInfo, ServerInfo, UserInfo};
 use rubo3t_core::settings::ConnectionSettings;
@@ -37,6 +38,21 @@ impl ViewMode {
     }
 }
 
+/// 查询标签页的脚本执行模式：Find（JS 风格脚本）/ Aggregate（JSON 管道数组）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum QueryMode {
+    #[default]
+    Find,
+    Aggregate,
+}
+
+/// 资源管理器右键菜单待确认动作（删除集合 / 删除数据库）。
+#[derive(Clone)]
+pub enum ExplorerAction {
+    DropCollection(String, String), // (db, coll)
+    DropDatabase(String),           // (db)
+}
+
 /// 单个查询标签页状态。
 #[derive(Clone)]
 pub struct QueryTab {
@@ -46,6 +62,10 @@ pub struct QueryTab {
     pub coll: String,
     /// 当前编辑器中的脚本文本（Robo3T 风格：`db.<coll>.find({...})`）。
     pub script: String,
+    /// 查询执行模式：Find / Aggregate。
+    pub query_mode: QueryMode,
+    /// 聚合管道文本（JSON 数组），仅在 Aggregate 模式下使用。
+    pub agg_text: String,
     /// 脚本是否被修改过（未保存/未执行），用于标签标题前缀 "* "。
     pub dirty: bool,
     pub filter: String,
@@ -71,6 +91,8 @@ impl QueryTab {
             db,
             coll,
             script: String::new(),
+            query_mode: QueryMode::default(),
+            agg_text: String::new(),
             dirty: false,
             filter: "{}".to_string(),
             sort: "{}".to_string(),
@@ -133,6 +155,10 @@ pub struct AppState {
     pub filter_text: String,
     pub sort_text: String,
     pub script_text: String,
+    /// 查询执行模式：Find / Aggregate。
+    pub query_mode: QueryMode,
+    /// 聚合管道文本（JSON 数组），仅在 Aggregate 模式下使用。
+    pub agg_text: String,
     pub limit: u64,
     pub skip: u64,
     /// 分页「跳过」输入框文本（独立持久，避免每次按键都触发查询）。
@@ -153,6 +179,13 @@ pub struct AppState {
     pub view_doc_title: String,
     pub view_doc_text: String,
 
+    // 文档导入/导出弹窗
+    pub export_open: bool,
+    pub export_path: String,
+    pub export_doc_index: Option<usize>,
+    pub import_open: bool,
+    pub import_path: String,
+
     // 文档编辑/插入弹窗
     pub edit_doc_open: bool,
     pub edit_doc_title: String,
@@ -162,13 +195,44 @@ pub struct AppState {
     pub indexes_dlg_open: bool,
     pub indexes_dlg_db: String,
     pub indexes_dlg_coll: String,
+    pub index_create_open: bool,
+    pub index_create_field: String,
+    pub index_create_name: String,
+    pub index_create_unique: bool,
+    pub user_create_open: bool,
+    pub user_create_name: String,
+    pub user_create_pwd: String,
+    pub user_create_roles: String,
+    pub user_edit_open: bool,
+    pub user_edit_name: String,
+    pub user_edit_pwd: String,
+    pub user_edit_roles: String,
+    pub index_edit_open: bool,
+    pub index_edit_old_name: String,
+    pub index_edit_field: String,
+    pub index_edit_name: String,
+    pub index_edit_unique: bool,
     pub users_dlg_open: bool,
     pub users_dlg_db: String,
+
+    // 资源管理器右键菜单：新建集合 / 删除确认 / 重命名集合
+    pub create_coll_db: Option<String>,
+    pub create_coll_name: String,
+    pub confirm_action: Option<ExplorerAction>,
+    pub rename_coll: Option<(String, String)>, // (db, old_name)
+    pub rename_coll_new: String,
 
     // 关于 / 测试 / 文件选择弹窗
     pub about_open: bool,
     // 版本能力弹窗
     pub version_caps_open: bool,
+
+    // 服务器状态弹窗
+    pub server_status_open: bool,
+    pub server_status_doc: Option<Document>,
+    pub host_info_doc: Option<Document>,
+    pub repl_status_doc: Option<Document>,
+    pub cmd_opts_doc: Option<Document>,
     pub test_open: bool,
     pub test_result: String,
     pub browse_open: bool,
@@ -290,6 +354,8 @@ impl AppState {
             filter_text: "{}".to_string(),
             sort_text: "{}".to_string(),
             script_text: String::new(),
+            query_mode: QueryMode::default(),
+            agg_text: String::new(),
             limit: 50,
             skip: 0,
             skip_input: "0".to_string(),
@@ -303,16 +369,48 @@ impl AppState {
             view_doc_open: false,
             view_doc_title: String::new(),
             view_doc_text: String::new(),
+            export_open: false,
+            export_path: String::new(),
+            export_doc_index: None,
+            import_open: false,
+            import_path: String::new(),
             edit_doc_open: false,
             edit_doc_title: String::new(),
             insert_doc_open: false,
             indexes_dlg_open: false,
             indexes_dlg_db: String::new(),
             indexes_dlg_coll: String::new(),
+            index_create_open: false,
+            index_create_field: String::new(),
+            index_create_name: String::new(),
+            index_create_unique: false,
+            user_create_open: false,
+            user_create_name: String::new(),
+            user_create_pwd: String::new(),
+            user_create_roles: String::new(),
+            user_edit_open: false,
+            user_edit_name: String::new(),
+            user_edit_pwd: String::new(),
+            user_edit_roles: String::new(),
+            index_edit_open: false,
+            index_edit_old_name: String::new(),
+            index_edit_field: String::new(),
+            index_edit_name: String::new(),
+            index_edit_unique: false,
             users_dlg_open: false,
             users_dlg_db: String::new(),
+            create_coll_db: None,
+            create_coll_name: String::new(),
+            confirm_action: None,
+            rename_coll: None,
+            rename_coll_new: String::new(),
             about_open: false,
             version_caps_open: false,
+            server_status_open: false,
+            server_status_doc: None,
+            host_info_doc: None,
+            repl_status_doc: None,
+            cmd_opts_doc: None,
             test_open: false,
             test_result: String::new(),
             browse_open: false,
@@ -370,11 +468,26 @@ impl AppState {
     // ----- 日志 -----
 
     pub fn log(&mut self, msg: impl Into<String>) {
-        let msg = msg.into();
-        self.logs.push(msg);
+        self.push_log("Info", msg.into());
+    }
+
+    fn log_error(&mut self, msg: impl Into<String>) {
+        self.push_log("Error", msg.into());
+    }
+
+    fn push_log(&mut self, level: &str, msg: String) {
+        let now = chrono::Local::now();
+        let period = if now.hour() < 12 { "上午" } else { "下午" };
+        let timestamp = format!("{} {}", now.format("%I:%M:%S"), period);
+        self.logs.push(format!("{timestamp}\t{level}: {msg}"));
         if self.logs.len() > 200 {
             self.logs.remove(0);
         }
+    }
+
+    fn log_query_script(&mut self, script: &str) {
+        let script = script.replace('\r', "\\r").replace('\n', "\\n");
+        self.log(script);
     }
 
     // ----- 连接管理 -----
@@ -504,6 +617,24 @@ impl AppState {
         }
     }
 
+    /// 拉取服务器状态/主机/副本集/启动参数，缓存到 state 供对话框渲染。
+    pub fn load_server_status(&mut self) {
+        // serverStatus 在任意库都可执行；优先用当前集合所在库，否则 admin。
+        let db = self
+            .current_collection()
+            .map(|(d, _)| d)
+            .unwrap_or_else(|| "admin".to_string());
+        if let Some(svc) = &self.service {
+            self.server_status_doc = self.rt.block_on(svc.server_status(&db)).ok();
+            self.host_info_doc = self.rt.block_on(svc.host_info(&db)).ok();
+            self.repl_status_doc = self.rt.block_on(svc.repl_set_status(&db)).ok();
+            self.cmd_opts_doc = self.rt.block_on(svc.cmd_line_opts(&db)).ok();
+            if self.server_status_doc.is_none() {
+                self.toast(self.lang.tr("server_status.failed"), true);
+            }
+        }
+    }
+
     /// 选中集合并打开/激活对应标签页。
     pub fn select_collection(&mut self, db: &str, coll: &str) {
         if let Some(pos) = self.tabs.iter().position(|t| t.db == db && t.coll == coll) {
@@ -529,6 +660,8 @@ impl AppState {
             tab.filter = self.filter_text.clone();
             tab.sort = self.sort_text.clone();
             tab.script = self.script_text.clone();
+            tab.query_mode = self.query_mode;
+            tab.agg_text = self.agg_text.clone();
             tab.dirty = tab.dirty || tab.script != self.script_text;
             tab.limit = self.limit;
             tab.skip = self.skip;
@@ -546,6 +679,8 @@ impl AppState {
             self.filter_text = tab.filter.clone();
             self.sort_text = tab.sort.clone();
             self.script_text = tab.script.clone();
+            self.query_mode = tab.query_mode;
+            self.agg_text = tab.agg_text.clone();
             self.limit = tab.limit;
             self.skip = tab.skip;
             self.documents = tab.documents.clone();
@@ -560,14 +695,14 @@ impl AppState {
         let parsed = match parse_script(&self.script_text) {
             Ok(p) => p,
             Err(e) => {
-                self.status(&format!("Failed to execute script. Error: {}", e));
+                self.report_execution_error(format!("Failed to execute script. Error: {}", e));
                 return;
             }
         };
         let db = match self.tabs.get(self.active_tab).map(|t| t.db.clone()) {
             Some(d) if !d.is_empty() => d,
             _ => {
-                self.status(self.lang.tr("query.select_collection_first"));
+                self.report_execution_error(self.lang.tr("query.select_collection_first"));
                 return;
             }
         };
@@ -575,7 +710,7 @@ impl AppState {
             match self.current_collection() {
                 Some((_, c)) => c,
                 None => {
-                    self.status(self.lang.tr("query.select_collection_first"));
+                    self.report_execution_error(self.lang.tr("query.select_collection_first"));
                     return;
                 }
             }
@@ -584,6 +719,8 @@ impl AppState {
         };
         self.limit = parsed.limit;
         self.skip = parsed.skip;
+        let query_script = self.script_text.trim().to_string();
+        self.log_query_script(&query_script);
         self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.dirty = false;
@@ -593,19 +730,28 @@ impl AppState {
         }
     }
 
+    /// 执行当前编辑器对应的查询模式。
+    pub fn run_current_query(&mut self) {
+        if self.query_mode == QueryMode::Aggregate {
+            self.run_aggregation();
+        } else {
+            self.run_query();
+        }
+    }
+
     /// 分页刷新：重新解析脚本的 filter/sort，但使用当前分页控件（skip/limit）而非脚本里的 .skip()/.limit()。
     pub fn run_query_paged(&mut self) {
         let parsed = match parse_script(&self.script_text) {
             Ok(p) => p,
             Err(e) => {
-                self.status(&format!("Failed to execute script. Error: {}", e));
+                self.report_execution_error(format!("Failed to execute script. Error: {}", e));
                 return;
             }
         };
         let db = match self.tabs.get(self.active_tab).map(|t| t.db.clone()) {
             Some(d) if !d.is_empty() => d,
             _ => {
-                self.status(self.lang.tr("query.select_collection_first"));
+                self.report_execution_error(self.lang.tr("query.select_collection_first"));
                 return;
             }
         };
@@ -613,14 +759,91 @@ impl AppState {
             match self.current_collection() {
                 Some((_, c)) => c,
                 None => {
-                    self.status(self.lang.tr("query.select_collection_first"));
+                    self.report_execution_error(self.lang.tr("query.select_collection_first"));
                     return;
                 }
             }
         } else {
             parsed.coll.clone()
         };
+        let query_script = self.script_text.trim().to_string();
+        self.log_query_script(&query_script);
         self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
+    }
+
+    /// 以聚合管道模式执行：解析 agg_text 为 JSON 数组管道并运行，结果回填 documents。
+    pub fn run_aggregation(&mut self) {
+        let db = match self.tabs.get(self.active_tab).map(|t| t.db.clone()) {
+            Some(d) if !d.is_empty() => d,
+            _ => {
+                self.report_execution_error(self.lang.tr("agg.select_collection_first"));
+                return;
+            }
+        };
+        let coll = match self.current_collection() {
+            Some((_, c)) => c,
+            None => {
+                self.report_execution_error(self.lang.tr("agg.select_collection_first"));
+                return;
+            }
+        };
+        let text = self.agg_text.trim();
+        let pipeline = match bson_ext::parse_pipeline_text(text) {
+            Ok(p) => p,
+            Err(e) => {
+                self.report_execution_error(format!(
+                    "{}: {}",
+                    self.lang.tr("agg.parse_failed"),
+                    e
+                ));
+                return;
+            }
+        };
+        self.log_query_script(&format!(
+            "db.getCollection('{}').aggregate({})",
+            coll.replace('\\', "\\\\").replace('\'', "\\'"),
+            text
+        ));
+        if let Some(svc) = &self.service {
+            let start = std::time::Instant::now();
+            match self.rt.block_on(svc.aggregate(&db, &coll, &pipeline)) {
+                Ok(docs) => {
+                    self.documents = docs;
+                    self.selected_doc = None;
+                    self.selected_doc_text.clear();
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    self.status(&trf(
+                        self.lang,
+                        "msg.query_returned",
+                        &[&self.documents.len().to_string()],
+                    ));
+                    self.log(&format!(
+                        "{}: {} docs, {} ms",
+                        self.lang.tr("agg.title"),
+                        self.documents.len(),
+                        elapsed
+                    ));
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        tab.documents = self.documents.clone();
+                        tab.query_time_ms = elapsed;
+                    }
+                }
+                Err(e) => self.report_execution_error(format!(
+                    "{}: {}",
+                    self.lang.tr("agg.failed"),
+                    e
+                )),
+            }
+        } else {
+            self.report_execution_error(self.lang.tr("msg.disconnected"));
+        }
+        self.sync_to_active_tab();
+    }
+
+    fn report_execution_error(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.status(&message);
+        self.log_error(message);
     }
 
     /// 真正的查询执行：调用 mongo 服务，回填 documents / query_time_ms 到 active tab。
@@ -660,8 +883,14 @@ impl AppState {
                         tab.query_time_ms = elapsed;
                     }
                 }
-                Err(e) => self.status(&trf(self.lang, "msg.query_failed", &[&e.to_string()])),
+                Err(e) => self.report_execution_error(trf(
+                    self.lang,
+                    "msg.query_failed",
+                    &[&e.to_string()],
+                )),
             }
+        } else {
+            self.report_execution_error(self.lang.tr("msg.disconnected"));
         }
         self.sync_to_active_tab();
     }
@@ -767,6 +996,66 @@ impl AppState {
                 }
                 Err(e) => self.toast(&trf(self.lang, "msg.delete_doc_failed", &[&e.to_string()]), true),
             }
+        }
+    }
+
+    /// 导出文档到 JSON 文件（单个或全部结果）。使用扩展 JSON 以便 ObjectId/日期等原样往返。
+    pub fn export_documents(&mut self, path: &str, docs: &[Document]) {
+        let parts: Vec<String> = docs
+            .iter()
+            .filter_map(|d| rubo3t_core::bson_ext::document_to_text(d).ok())
+            .collect();
+        let body = parts.join(",\n");
+        let json = format!("[\n{body}\n]");
+        match std::fs::write(path, json) {
+            Ok(_) => self.toast(
+                &trf(self.lang, "doc.export_ok", &[&docs.len().to_string(), path]),
+                false,
+            ),
+            Err(e) => self.toast(&trf(self.lang, "doc.export_failed", &[&e.to_string()]), true),
+        }
+    }
+
+    /// 从 JSON 文件导入文档到当前集合（支持文档数组或单个文档对象）。
+    pub fn import_documents(&mut self, path: &str) {
+        let (db, coll) = match self.current_collection() {
+            Some(x) => x,
+            None => {
+                self.toast(self.lang.tr("msg.select_collection_first"), true);
+                return;
+            }
+        };
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                self.toast(&trf(self.lang, "doc.import_failed", &[&e.to_string()]), true);
+                return;
+            }
+        };
+        // 优先按数组解析，失败再按单个文档对象解析。
+        let docs = match rubo3t_core::bson_ext::parse_pipeline_text(text.trim()) {
+            Ok(ds) => ds,
+            Err(_) => match rubo3t_core::bson_ext::parse_document_text(text.trim()) {
+                Ok(d) => vec![d],
+                Err(e) => {
+                    self.toast(&trf(self.lang, "doc.import_failed", &[&e.to_string()]), true);
+                    return;
+                }
+            },
+        };
+        if docs.is_empty() {
+            self.toast(self.lang.tr("doc.import_empty"), true);
+            return;
+        }
+        if let Some(svc) = &self.service {
+            let mut ok_count = 0usize;
+            for d in &docs {
+                if self.rt.block_on(svc.insert_one(&db, &coll, d)).is_ok() {
+                    ok_count += 1;
+                }
+            }
+            self.toast(&trf(self.lang, "doc.import_ok", &[&ok_count.to_string()]), false);
+            self.run_query();
         }
     }
 
@@ -877,6 +1166,244 @@ impl AppState {
         }
     }
 
+    fn parse_index_keys(s: &str) -> Option<Document> {
+        let mut doc = Document::new();
+        for part in s.split(',').map(|p| p.trim()).filter(|p| !p.is_empty()) {
+            let (field, dir) = match part.split_once(':') {
+                Some((f, d)) => (f.trim(), d.trim().parse::<i32>().unwrap_or(1)),
+                None => (part, 1),
+            };
+            doc.insert(field.to_string(), dir);
+        }
+        if doc.is_empty() { None } else { Some(doc) }
+    }
+
+    pub fn reload_indexes(&mut self) {
+        if let Some(svc) = &self.service {
+            match self.rt.block_on(svc.list_indexes(&self.indexes_dlg_db, &self.indexes_dlg_coll)) {
+                Ok(i) => self.indexes = i,
+                Err(e) => self.toast(&trf(self.lang, "index.load_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    pub fn create_index(&mut self, db: &str, coll: &str, keys_str: &str, name: &str, unique: bool) {
+        match Self::parse_index_keys(keys_str) {
+            Some(keys) => {
+                if let Some(svc) = &self.service {
+                    let nm = if name.trim().is_empty() { None } else { Some(name.trim().to_string()) };
+                    match self.rt.block_on(svc.create_index(db, coll, &keys, nm, unique)) {
+                        Ok(_) => {
+                            self.reload_indexes();
+                            self.toast(&trf(self.lang, "index.created", &[]), false);
+                        }
+                        Err(e) => self.toast(&trf(self.lang, "index.create_failed", &[&e.to_string()]), true),
+                    }
+                }
+            }
+            None => self.toast(&trf(self.lang, "index.parse_failed", &[keys_str]), true),
+        }
+    }
+
+    pub fn drop_index(&mut self, db: &str, coll: &str, name: &str) {
+        if let Some(svc) = &self.service {
+            match self.rt.block_on(svc.drop_index(db, coll, name)) {
+                Ok(_) => {
+                    self.reload_indexes();
+                    self.toast(&trf(self.lang, "index.dropped", &[]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "index.drop_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    pub fn reload_users(&mut self) {
+        if let Some(svc) = &self.service {
+            match self.rt.block_on(svc.list_users(&self.users_dlg_db)) {
+                Ok(u) => self.users = u,
+                Err(e) => self.toast(&trf(self.lang, "user.load_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    pub fn create_user(&mut self, db: &str, name: &str, pwd: &str, roles_str: &str) {
+        let roles: Vec<String> = roles_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if let Some(svc) = &self.service {
+            let cmd = doc! {
+                "createUser": name.to_string(),
+                "pwd": pwd.to_string(),
+                "roles": roles.clone(),
+            };
+            match self.rt.block_on(svc.run_command(db, &cmd)) {
+                Ok(_) => {
+                    self.reload_users();
+                    self.toast(&trf(self.lang, "user.created", &[name]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "user.create_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    pub fn drop_user(&mut self, db: &str, name: &str) {
+        if let Some(svc) = &self.service {
+            let cmd = doc! { "dropUser": name.to_string() };
+            match self.rt.block_on(svc.run_command(db, &cmd)) {
+                Ok(_) => {
+                    self.reload_users();
+                    self.toast(&trf(self.lang, "user.dropped", &[]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "user.drop_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    /// 编辑用户：updateUser 命令；密码留空则不修改。
+    pub fn edit_user(&mut self, db: &str, name: &str, pwd: &str, roles_str: &str) {
+        if let Some(svc) = &self.service {
+            let mut cmd = rubo3t_core::bson::doc! { "updateUser": name.to_string() };
+            if !pwd.is_empty() {
+                cmd.insert("pwd", pwd.to_string());
+            }
+            let roles: Vec<rubo3t_core::bson::Bson> = roles_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| rubo3t_core::bson::Bson::String(s.to_string()))
+                .collect();
+            cmd.insert("roles", roles);
+            match self.rt.block_on(svc.run_command(db, &cmd)) {
+                Ok(_) => {
+                    self.reload_users();
+                    self.toast(&trf(self.lang, "user.updated", &[name]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "user.update_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    /// 编辑索引：MongoDB 不支持就地修改索引，采用「先删旧、后建新」。
+    pub fn edit_index(&mut self, db: &str, coll: &str, old_name: &str, keys_str: &str, name: &str, unique: bool) {
+        let keys = match rubo3t_core::bson_ext::parse_filter_text(keys_str) {
+            Ok(k) => k,
+            Err(e) => {
+                self.toast(&trf(self.lang, "index.parse_failed", &[&e.to_string()]), true);
+                return;
+            }
+        };
+        let nm = if name.is_empty() { None } else { Some(name.to_string()) };
+        if let Some(svc) = &self.service {
+            if let Err(e) = self.rt.block_on(svc.drop_index(db, coll, old_name)) {
+                self.toast(&trf(self.lang, "index.update_failed", &[&e.to_string()]), true);
+                return;
+            }
+            match self.rt.block_on(svc.create_index(db, coll, &keys, nm, unique)) {
+                Ok(_) => {
+                    self.reload_indexes();
+                    self.toast(&trf(self.lang, "index.updated", &[name]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "index.update_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    // ----- 资源管理器右键菜单动作 -----
+
+    /// 记录「新建集合」意图，由 dialogs 渲染输入框。
+    pub fn request_create_collection(&mut self, db: String) {
+        self.create_coll_db = Some(db);
+    }
+
+    /// 请求删除集合（弹确认框）。
+    pub fn request_drop_collection(&mut self, db: String, coll: String) {
+        self.confirm_action = Some(ExplorerAction::DropCollection(db, coll));
+    }
+
+    /// 请求删除数据库（弹确认框）。
+    pub fn request_drop_database(&mut self, db: String) {
+        self.confirm_action = Some(ExplorerAction::DropDatabase(db));
+    }
+
+    /// 打开插入文档弹窗（先选中集合）。
+    pub fn start_insert_document(&mut self, db: String, coll: String) {
+        self.select_collection(&db, &coll);
+        self.insert_doc_open = true;
+        self.selected_doc_text = "{\n  \n}".to_string();
+    }
+
+    /// 执行 `create` 命令新建集合。
+    pub fn create_collection(&mut self, db: &str, name: &str) {
+        if let Some(svc) = &self.service {
+            let cmd = rubo3t_core::bson::doc! { "create": name.to_string() };
+            match self.rt.block_on(svc.run_command(db, &cmd)) {
+                Ok(_) => {
+                    self.load_collections(db);
+                    self.toast(&trf(self.lang, "msg.coll_created", &[name]), false);
+                }
+                Err(e) => self.toast(&trf(self.lang, "msg.coll_create_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    /// 执行资源管理器右键菜单的待确认动作。
+    pub fn perform_explorer_action(&mut self, action: ExplorerAction) {
+        if let Some(svc) = &self.service {
+            match action {
+                ExplorerAction::DropCollection(db, coll) => {
+                    match self.rt.block_on(svc.drop_collection(&db, &coll)) {
+                        Ok(_) => {
+                            self.load_collections(&db);
+                            self.toast(
+                                &trf(self.lang, "msg.coll_dropped", &[&format!("{}.{}", db, coll)]),
+                                false,
+                            );
+                        }
+                        Err(e) => {
+                            self.toast(&trf(self.lang, "msg.coll_drop_failed", &[&e.to_string()]), true)
+                        }
+                    }
+                }
+                ExplorerAction::DropDatabase(db) => {
+                    match self.rt.block_on(svc.drop_database(&db)) {
+                        Ok(_) => {
+                            self.load_databases();
+                            self.toast(&trf(self.lang, "msg.db_dropped", &[&db]), false);
+                        }
+                        Err(e) => {
+                            self.toast(&trf(self.lang, "msg.db_drop_failed", &[&e.to_string()]), true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn request_rename_collection(&mut self, db: String, coll: String) {
+        self.rename_coll = Some((db, coll.clone()));
+        self.rename_coll_new = coll;
+    }
+
+    pub fn rename_collection(&mut self, db: &str, old: &str, new: &str) {
+        if let Some(svc) = &self.service {
+            let cmd = rubo3t_core::bson::doc! {
+                "renameCollection": format!("{}.{}", db, old),
+                "to": format!("{}.{}", db, new),
+            };
+            match self.rt.block_on(svc.run_command(db, &cmd)) {
+                Ok(_) => {
+                    self.load_collections(db);
+                    self.toast(&trf(self.lang, "msg.coll_renamed", &[old, new]), false);
+                }
+                Err(e) => {
+                    self.toast(&trf(self.lang, "msg.coll_rename_failed", &[&e.to_string()]), true)
+                }
+            }
+        }
+    }
+
     pub fn close_tab(&mut self, idx: usize) {
         if idx >= self.tabs.len() {
             return;
@@ -956,7 +1483,12 @@ fn parse_script(script: &str) -> Result<ParsedQuery, String> {
         .unwrap_or_default()
         .trim()
         .to_string();
-    let filter = parse_doc(&filter_str)?;
+    let mut filter = parse_doc(&filter_str)?;
+    if let Some(Bson::String(id)) = filter.get("_id") {
+        if let Ok(object_id) = rubo3t_core::bson::oid::ObjectId::parse_str(id) {
+            filter.insert("_id", Bson::ObjectId(object_id));
+        }
+    }
 
     let mut rest = &s[close + 1..];
     let mut sort = Document::new();
@@ -969,9 +1501,11 @@ fn parse_script(script: &str) -> Result<ParsedQuery, String> {
             // after 形如 "{a:-1}).limit(5)"
             let close_brace = find_matching_brace(after)
                 .ok_or_else(|| "sort() 括号不匹配".to_string())?;
-            let sort_str = after[1..close_brace].trim();
+            let sort_str = after[..=close_brace].trim();
             sort = parse_doc(sort_str)?;
-            rest = &after[close_brace + 1..];
+            rest = after[close_brace + 1..]
+                .strip_prefix(')')
+                .ok_or_else(|| "sort() 缺少右括号".to_string())?;
         } else if let Some(after) = t.strip_prefix(".limit(") {
             // after 形如 "10).skip(5)"
             let c = after
@@ -1034,7 +1568,86 @@ fn parse_doc(s: &str) -> Result<Document, String> {
     if s.is_empty() {
         return Ok(Document::new());
     }
-    bson_ext::parse_filter_text(s).map_err(|e| format!("解析文档失败: {}", e))
+    let normalized = normalize_doc_syntax(s);
+    bson_ext::parse_filter_text(&normalized).map_err(|e| format!("解析文档失败: {}", e))
+}
+
+fn normalize_doc_syntax(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => {
+                out.push(c);
+                let mut escaped = false;
+                for inner in chars.by_ref() {
+                    out.push(inner);
+                    if escaped {
+                        escaped = false;
+                    } else if inner == '\\' {
+                        escaped = true;
+                    } else if inner == '"' {
+                        break;
+                    }
+                }
+            }
+            '\'' => {
+                out.push('"');
+                let mut escaped = false;
+                for inner in chars.by_ref() {
+                    if escaped {
+                        match inner {
+                            '\'' => out.push('\''),
+                            '"' => out.push_str("\\\""),
+                            '\\' => out.push_str("\\\\"),
+                            'n' | 'r' | 't' | 'b' | 'f' | '/' => {
+                                out.push('\\');
+                                out.push(inner);
+                            }
+                            _ => {
+                                out.push('\\');
+                                out.push(inner);
+                            }
+                        }
+                        escaped = false;
+                    } else {
+                        match inner {
+                            '\'' => {
+                                out.push('"');
+                                break;
+                            }
+                            '\\' => escaped = true,
+                            '"' => out.push_str("\\\""),
+                            _ => out.push(inner),
+                        }
+                    }
+                }
+            }
+            c if c == '_' || c == '$' || c.is_alphabetic() => {
+                let mut identifier = String::from(c);
+                while let Some(&next) = chars.peek() {
+                    if next == '_' || next == '$' || next.is_alphanumeric() {
+                        identifier.push(next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                let is_key = chars.clone().find(|next| !next.is_whitespace()) == Some(':');
+                if is_key {
+                    out.push('"');
+                    out.push_str(&identifier);
+                    out.push('"');
+                } else {
+                    out.push_str(&identifier);
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+
+    out
 }
 
 /// 解析无符号整数（limit/skip 用）。
@@ -1049,27 +1662,24 @@ fn split_top_level(s: &str, sep: char) -> Vec<String> {
     let mut parts = Vec::new();
     let mut depth = 0i32;
     let mut in_str = false;
-    let mut quote = b' ';
+    let mut quote = ' ';
+    let mut escaped = false;
     let mut cur = String::new();
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
+    for c in s.chars() {
         if in_str {
             cur.push(c);
-            if c == '\\' && i + 1 < bytes.len() {
-                cur.push(bytes[i + 1] as char);
-                i += 2;
-                continue;
-            }
-            if (c as u8) == quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
                 in_str = false;
             }
         } else {
             match c {
                 '\'' | '"' => {
                     in_str = true;
-                    quote = c as u8;
+                    quote = c;
                     cur.push(c);
                 }
                 '{' | '(' | '[' => {
@@ -1086,7 +1696,6 @@ fn split_top_level(s: &str, sep: char) -> Vec<String> {
                 _ => cur.push(c),
             }
         }
-        i += 1;
     }
     if !cur.trim().is_empty() {
         parts.push(cur);
@@ -1164,4 +1773,98 @@ fn find_matching_brace(s: &str) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+#[cfg(test)]
+mod query_script_tests {
+    use super::parse_script;
+    use rubo3t_core::bson::{oid::ObjectId, Bson};
+
+    #[test]
+    fn parses_empty_filter_with_sort() {
+        let query = parse_script(
+            r#"db.ChinaumsApiLog.find({}).sort({"requestTime": -1}).limit(20).skip(5)"#,
+        )
+        .expect("query script should parse");
+
+        assert_eq!(query.coll, "ChinaumsApiLog");
+        assert!(query.filter.is_empty());
+        assert!(matches!(
+            query.sort.get("requestTime"),
+            Some(Bson::Int32(-1) | Bson::Int64(-1))
+        ));
+        assert_eq!(query.limit, 20);
+        assert_eq!(query.skip, 5);
+    }
+
+    #[test]
+    fn preserves_chinese_filter_values() {
+        let query = parse_script(
+            r#"db.ChinaumsApiLog.find({"apiName": "二维码支付"})"#,
+        )
+        .expect("query script should parse");
+
+        assert_eq!(
+            query.filter.get("apiName"),
+            Some(&Bson::String("二维码支付".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_string_id_as_object_id() {
+        let query = parse_script(r#"db.items.find({_id: "675019e7af159c4e18299c4c"})"#)
+            .expect("string _id query should parse");
+
+        assert_eq!(
+            query.filter.get("_id"),
+            Some(&Bson::ObjectId(
+                ObjectId::parse_str("675019e7af159c4e18299c4c").unwrap()
+            ))
+        );
+    }
+
+    #[test]
+    fn keeps_non_object_id_strings_unchanged() {
+        let query = parse_script(r#"db.items.find({_id: "not-an-object-id", name: "675019e7af159c4e18299c4c"})"#)
+            .expect("string _id query should parse");
+
+        assert_eq!(
+            query.filter.get("_id"),
+            Some(&Bson::String("not-an-object-id".to_string()))
+        );
+        assert_eq!(
+            query.filter.get("name"),
+            Some(&Bson::String(
+                "675019e7af159c4e18299c4c".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn accepts_unquoted_keys_and_single_quoted_values() {
+        let query = parse_script(
+            "db.ChinaumsApiLog.find({apiName: '二维码支付'}).sort({requestTime: -1})",
+        )
+        .expect("unquoted keys and single-quoted values should parse");
+
+        assert_eq!(
+            query.filter.get("apiName"),
+            Some(&Bson::String("二维码支付".to_string()))
+        );
+        assert!(matches!(
+            query.sort.get("requestTime"),
+            Some(Bson::Int32(-1) | Bson::Int64(-1))
+        ));
+    }
+
+    #[test]
+    fn preserves_quotes_inside_single_quoted_values() {
+        let query = parse_script(r#"db.items.find({name: 'Bob "the builder"'})"#)
+            .expect("double quotes inside single-quoted values should parse");
+
+        assert_eq!(
+            query.filter.get("name"),
+            Some(&Bson::String("Bob \"the builder\"".to_string()))
+        );
+    }
 }

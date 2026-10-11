@@ -8,14 +8,15 @@
 use eframe::egui;
 use egui::{
     Align, Align2, Button, Color32, ComboBox, Context, DragValue, Frame, Layout, Margin, Rounding,
-    ScrollArea, Stroke, TextEdit, Ui, Vec2, Window,
+    ScrollArea, Sense, Stroke, TextEdit, Ui, UiBuilder, Vec2, Window,
 };
 
-use crate::app::{AppState, ConnDlgMode};
+use crate::app::{AppState, ConnDlgMode, ExplorerAction};
 use crate::form::{ConnectionForm, MechChoice};
 use crate::i18n::{trf, Lang};
 use crate::icons;
 use rubo3t_core::bson_ext;
+use rubo3t_core::Document;
 use rubo3t_core::settings::{validate, ConnectionMode, SshAuthMethod};
 use rubo3t_core::version::FeatureGate;
 
@@ -32,9 +33,10 @@ const HEAD_FILL: Color32 = Color32::from_gray(0xE8);
 /// 灰色说明文字。
 const HINT_GRAY: Color32 = Color32::from_gray(0x8C);
 /// 4 列表格列宽（与表头保持一致以对齐）。
-const COL0_W: f32 = 220.0;
-const COL1_W: f32 = 170.0;
-const COL2_W: f32 = 150.0;
+const COL0_W: f32 = 180.0;
+const COL1_W: f32 = 188.0;
+const COL2_W: f32 = 98.0;
+const CONNECTION_ROW_HEIGHT: f32 = 22.0;
 
 /// 主按钮浅边框。
 fn primary_stroke() -> Stroke {
@@ -43,6 +45,7 @@ fn primary_stroke() -> Stroke {
 
 /// 弹窗总入口：在每帧最后渲染全部弹窗（盖住下方 UI，制造"模态"观感）。
 pub fn render(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
     if state.conn_dlg_open {
         match state.conn_dlg_mode {
             ConnDlgMode::List => render_connections_dialog(ctx, state),
@@ -58,11 +61,23 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     if state.insert_doc_open {
         render_insert_document(ctx, state);
     }
+    if state.export_open {
+        render_export_dialog(ctx, state);
+    }
+    if state.import_open {
+        render_import_dialog(ctx, state);
+    }
     if state.indexes_dlg_open {
         render_indexes_dialog(ctx, state);
     }
     if state.users_dlg_open {
         render_users_dialog(ctx, state);
+    }
+    if state.user_edit_open {
+        render_edit_user_dialog(ctx, state);
+    }
+    if state.index_edit_open {
+        render_edit_index_dialog(ctx, state);
     }
     if state.about_open {
         render_about_dialog(ctx, state);
@@ -70,12 +85,122 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     if state.version_caps_open {
         render_version_caps_dialog(ctx, state);
     }
+    if state.server_status_open {
+        render_server_status_dialog(ctx, state);
+    }
     if state.test_open {
         render_test_dialog(ctx, state);
     }
     if state.browse_open {
         render_browse_dialog(ctx, state);
     }
+
+    // 新建集合输入框（由右键「新建集合...」触发）。
+    if let Some(db) = state.create_coll_db.clone() {
+        let mut name = state.create_coll_name.clone();
+        let mut ok = false;
+        let mut cancel = false;
+        Window::new(lang.tr("explorer.create_coll_title"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(lang.tr("explorer.coll_name"));
+                ui.text_edit_singleline(&mut name);
+                ui.horizontal(|ui| {
+                    if ui.button(lang.tr("common.cancel")).clicked() {
+                        cancel = true;
+                    }
+                    if primary_button(ui, None, lang.tr("common.create")) {
+                        ok = true;
+                    }
+                });
+            });
+        if cancel {
+            state.create_coll_db = None;
+            state.create_coll_name.clear();
+        }
+        if ok {
+            let n = name.trim().to_string();
+            if !n.is_empty() {
+                state.create_coll_name = n.clone();
+                state.create_collection(&db, &n);
+            }
+            state.create_coll_db = None;
+            state.create_coll_name.clear();
+        }
+    }
+
+    // 删除集合 / 删除数据库确认框。
+    if let Some(action) = state.confirm_action.clone() {
+        let msg = match &action {
+            ExplorerAction::DropCollection(db, coll) => {
+                trf(lang, "explorer.confirm_drop_coll", &[&format!("{}.{}", db, coll)])
+            }
+            ExplorerAction::DropDatabase(db) => trf(lang, "explorer.confirm_drop_db", &[db]),
+        };
+        let mut ok = false;
+        let mut cancel = false;
+        Window::new(lang.tr("common.delete"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(msg);
+                ui.horizontal(|ui| {
+                    if ui.button(lang.tr("common.cancel")).clicked() {
+                        cancel = true;
+                    }
+                    if primary_button(ui, None, lang.tr("common.delete")) {
+                        ok = true;
+                    }
+                });
+            });
+        if cancel {
+            state.confirm_action = None;
+        }
+        if ok {
+            state.perform_explorer_action(action);
+            state.confirm_action = None;
+        }
+    }
+
+    // 重命名集合输入模态
+    if let Some((db, old)) = state.rename_coll.clone() {
+        let mut new_name = state.rename_coll_new.clone();
+        let mut ok = false;
+        let mut cancel = false;
+        Window::new(lang.tr("explorer.rename_title"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(lang.tr("explorer.new_name"));
+                ui.text_edit_singleline(&mut new_name);
+                ui.horizontal(|ui| {
+                    if ui.button(lang.tr("common.cancel")).clicked() {
+                        cancel = true;
+                    }
+                    if primary_button(ui, None, lang.tr("common.ok")) {
+                        ok = true;
+                    }
+                });
+            });
+        if cancel {
+            state.rename_coll = None;
+            state.rename_coll_new.clear();
+        }
+        if ok {
+            let n = new_name.trim().to_string();
+            if !n.is_empty() && n != old {
+                state.rename_coll_new = n.clone();
+                state.rename_collection(&db, &old, &n);
+            }
+            state.rename_coll = None;
+            state.rename_coll_new.clear();
+        }
+    }
+
     render_toast(ctx, state);
 }
 
@@ -94,6 +219,23 @@ fn primary_button(ui: &mut Ui, icon: Option<&str>, label: &str) -> bool {
     clicked
 }
 
+/// 密码/口令框 + 「显示/隐藏」切换按钮（对应原版密码行右侧的眼睛图标）。
+fn pw_row(ui: &mut Ui, label: &str, text: &mut String, show: &mut bool, lang: Lang) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let edit = TextEdit::singleline(text).password(!*show).desired_width(200.0);
+        ui.add(edit);
+        let tgl = if *show {
+            lang.tr("form.hide")
+        } else {
+            lang.tr("form.show")
+        };
+        if ui.button(tgl).clicked() {
+            *show = !*show;
+        }
+    });
+}
+
 // ---------------------------------------------------------------- §11 MongoDB Connections
 
 fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
@@ -106,12 +248,13 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
     let mut act_remove = false;
     let mut act_connect_idx: Option<usize> = None;
     let mut act_cancel = false;
+    let mut drag_release: Option<usize> = None;
+    let mut row_rects = Vec::new();
 
     Window::new(lang.tr("dialog.conn_title"))
         .open(&mut state.conn_dlg_open)
-        .resizable(true)
-        .default_size(Vec2::new(630.0, 290.0))
-        .min_size(Vec2::new(630.0, 290.0))
+        .resizable(false)
+        .fixed_size(Vec2::new(654.0, 397.0))
         .show(ctx, |ui| {
             // 顶部蓝色链接说明行：Create / edit / remove / clone 为可点击链接。
             ui.style_mut().visuals.hyperlink_color = LINK_BLUE;
@@ -150,7 +293,10 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
             ui.separator();
 
             // 表格体
-            ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
+            ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .max_height(280.0)
+                .show(ui, |ui| {
                 for (i, conn) in state.connections.iter().enumerate() {
                     let is_selected = selected == Some(i);
                     let zebra = i % 2 == 1;
@@ -190,35 +336,51 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
                         attrs.push(lang.tr("attr.ssh"));
                     }
 
-                    let resp = Frame::none().fill(bg).show(ui, |ui| {
-                        ui.columns(4, |cols| {
-                            cols[0].set_min_width(COL0_W);
-                            cols[1].set_min_width(COL1_W);
-                            cols[2].set_min_width(COL2_W);
-                            cols[0].horizontal(|ui| {
-                                ui.add(icons::img(icon).fit_to_original_size(1.0));
-                                ui.label(&conn.name);
-                            });
-                            cols[1].label(&addr);
-                            cols[2].label(attrs.join(", "));
-                            if conn.credential.enabled {
-                                cols[3].horizontal(|ui| {
-                                    ui.label(format!(
-                                        "{} / {}",
-                                        conn.credential.auth_source, conn.credential.user_name
-                                    ));
-                                    ui.add(icons::img("key_16x16").fit_to_original_size(1.0));
-                                });
-                            }
+                    let (row_rect, _) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), CONNECTION_ROW_HEIGHT),
+                        Sense::hover(),
+                    );
+                    row_rects.push(row_rect);
+                    ui.painter().rect_filled(row_rect, 0.0, bg);
+                    let mut row_ui = ui.new_child(
+                        UiBuilder::new()
+                            .max_rect(row_rect)
+                            .layout(Layout::left_to_right(Align::Center)),
+                    );
+                    row_ui.columns(4, |cols| {
+                        cols[0].set_min_width(COL0_W);
+                        cols[1].set_min_width(COL1_W);
+                        cols[2].set_min_width(COL2_W);
+                        cols[0].horizontal(|ui| {
+                            ui.add(icons::img(icon).fit_to_original_size(1.0));
+                            ui.label(&conn.name);
                         });
-                    })
-                    .response;
+                        cols[1].label(&addr);
+                        cols[2].label(attrs.join(", "));
+                        if conn.credential.enabled {
+                            cols[3].horizontal(|ui| {
+                                ui.add(icons::img("key_16x16").fit_to_original_size(1.0));
+                                ui.label(format!(
+                                    "{} / {}",
+                                    conn.credential.auth_source, conn.credential.user_name
+                                ));
+                            });
+                        }
+                    });
+                    let resp = ui.interact(
+                        row_rect,
+                        ui.id().with(("connection_row", i)),
+                        Sense::click_and_drag(),
+                    );
 
                     if resp.clicked() {
                         new_sel = Some(i);
                     }
                     if resp.double_clicked() {
                         act_connect_idx = Some(i);
+                    }
+                    if resp.drag_stopped() {
+                        drag_release = Some(i);
                     }
                     resp.context_menu(|ui| {
                         if ui.button(lang.tr("dialog.conn_create")).clicked() {
@@ -258,6 +420,28 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
             });
         });
 
+    if let Some(from) = drag_release {
+        if let Some(pointer) = ctx.input(|input| input.pointer.interact_pos()) {
+            if let Some(to) = row_rects.iter().position(|rect| rect.contains(pointer)) {
+                if from != to && from < state.connections.len() && to < state.connections.len() {
+                    let connection = state.connections.remove(from);
+                    state.connections.insert(to, connection);
+                    selected = selected.map(|index| {
+                        if index == from {
+                            to
+                        } else if from < to && (from + 1..=to).contains(&index) {
+                            index - 1
+                        } else if to < from && (to..from).contains(&index) {
+                            index + 1
+                        } else {
+                            index
+                        }
+                    });
+                    state.save_connections();
+                }
+            }
+        }
+    }
     if let Some(i) = new_sel {
         selected = Some(i);
     }
@@ -322,9 +506,15 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
             if ok {
                 state.connections.remove(idx);
                 state.save_connections();
-                if state.conn_dlg_selected == Some(idx) {
-                    state.conn_dlg_selected = None;
-                }
+                state.conn_dlg_selected = state.conn_dlg_selected.and_then(|selected| {
+                    if selected == idx {
+                        None
+                    } else if selected > idx {
+                        Some(selected - 1)
+                    } else {
+                        Some(selected)
+                    }
+                });
                 state.toast(&format!("{}: {}", lang.tr("common.delete"), name), false);
                 state.confirm_remove_idx = None;
             }
@@ -459,11 +649,6 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
                     ConnectionMode::ReplicaSet,
                     lang.tr("form.mode.replica"),
                 );
-                ui.selectable_value(
-                    &mut mode,
-                    ConnectionMode::ShardCluster,
-                    lang.tr("form.mode.shard"),
-                );
             });
         dlg.mode = mode;
     });
@@ -471,8 +656,37 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
         ui.label(lang.tr("common.name"));
         ui.add(TextEdit::singleline(&mut dlg.name).desired_width(240.0));
     });
-    ui.colored_label(HINT_GRAY, lang.tr("form.hint.name"));
-    if dlg.mode == ConnectionMode::Standalone {
+    if dlg.mode == ConnectionMode::ReplicaSet {
+        ui.label(lang.tr("form.members"));
+        let mut lines: Vec<String> = dlg
+            .hosts_text
+            .lines()
+            .map(|s| s.to_string())
+            .collect();
+        if lines.is_empty() {
+            lines.push("127.0.0.1:27017".to_string());
+        }
+        let mut remove_idx: Option<usize> = None;
+        for i in 0..lines.len() {
+            ui.horizontal(|ui| {
+                ui.add(TextEdit::singleline(&mut lines[i]).desired_width(220.0));
+                if ui.button("−").clicked() {
+                    remove_idx = Some(i);
+                }
+            });
+        }
+        if ui.button("＋").clicked() {
+            lines.push("127.0.0.1:27017".to_string());
+        }
+        if let Some(i) = remove_idx {
+            lines.remove(i);
+        }
+        dlg.hosts_text = lines.join("\n");
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.replica_set"));
+            ui.add(TextEdit::singleline(&mut dlg.replica_set).desired_width(200.0));
+        });
+    } else {
         ui.horizontal(|ui| {
             ui.label(lang.tr("form.address"));
             ui.add(TextEdit::singleline(&mut dlg.host_input).desired_width(180.0));
@@ -480,22 +694,15 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
             ui.add(TextEdit::singleline(&mut dlg.port_input).desired_width(60.0));
         });
         ui.colored_label(HINT_GRAY, lang.tr("form.hint.address"));
-    } else {
-        ui.label(lang.tr("form.hosts"));
-        ui.add(
-            TextEdit::multiline(&mut dlg.hosts_text)
-                .code_editor()
-                .desired_rows(3)
-                .desired_width(300.0),
-        );
-        ui.horizontal(|ui| {
-            ui.label(lang.tr("form.replica_set"));
-            ui.add(TextEdit::singleline(&mut dlg.replica_set).desired_width(200.0));
-        });
     }
+    ui.separator();
     ui.horizontal(|ui| {
-        ui.checkbox(&mut dlg.use_srv, lang.tr("form.use_srv"));
-        ui.checkbox(&mut dlg.direct, lang.tr("form.direct"));
+        if ui.button(lang.tr("settings.from_uri")).clicked() {
+            let uri = dlg.uri_text.clone();
+            dlg.apply_uri(&uri);
+        }
+        ui.add(TextEdit::singleline(&mut dlg.uri_text).desired_width(320.0));
+        ui.label(lang.tr("settings.uri_placeholder"));
     });
     None
 }
@@ -507,24 +714,20 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
     }
     ui.horizontal(|ui| {
         ui.label(lang.tr("form.auth_db"));
-        ui.add(TextEdit::singleline(&mut dlg.auth_source).desired_width(120.0));
-        ui.label(lang.tr("form.user"));
-        ui.add(TextEdit::singleline(&mut dlg.user).desired_width(120.0));
+        ui.add(TextEdit::singleline(&mut dlg.auth_source).desired_width(160.0));
     });
+    ui.colored_label(HINT_GRAY, lang.tr("form.auth.db_hint"));
     ui.horizontal(|ui| {
-        ui.label(lang.tr("form.password"));
-        ui.add(TextEdit::singleline(&mut dlg.password).desired_width(160.0));
+        ui.label(lang.tr("form.user"));
+        ui.add(TextEdit::singleline(&mut dlg.user).desired_width(200.0));
+    });
+    pw_row(ui, lang.tr("form.password"), &mut dlg.password, &mut dlg.show_auth_password, lang);
+    ui.horizontal(|ui| {
         ui.label(lang.tr("form.mechanism"));
         let mut mech = dlg.mechanism;
         ComboBox::from_label("")
             .selected_text(mech.tr(lang))
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut mech, MechChoice::Auto, MechChoice::Auto.tr(lang));
-                ui.selectable_value(
-                    &mut mech,
-                    MechChoice::MongoDbCr,
-                    MechChoice::MongoDbCr.tr(lang),
-                );
                 ui.selectable_value(
                     &mut mech,
                     MechChoice::ScramSha1,
@@ -535,10 +738,11 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
                     MechChoice::ScramSha256,
                     MechChoice::ScramSha256.tr(lang),
                 );
-                ui.selectable_value(&mut mech, MechChoice::Plain, MechChoice::Plain.tr(lang));
-                ui.selectable_value(&mut mech, MechChoice::X509, MechChoice::X509.tr(lang));
-                ui.selectable_value(&mut mech, MechChoice::GssApi, MechChoice::GssApi.tr(lang));
-                ui.selectable_value(&mut mech, MechChoice::AwsIam, MechChoice::AwsIam.tr(lang));
+                ui.selectable_value(
+                    &mut mech,
+                    MechChoice::MongoDbCr,
+                    MechChoice::MongoDbCr.tr(lang),
+                );
             });
         dlg.mechanism = mech;
     });
@@ -584,6 +788,20 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
     if let Some(warn_text) = warn {
         ui.colored_label(Color32::from_rgb(0xB0, 0x6A, 0x00), warn_text);
     }
+
+    ui.separator();
+    ui.checkbox(&mut dlg.auth_visible_dbs_enabled, lang.tr("form.auth.visible_dbs"));
+    if dlg.auth_visible_dbs_enabled {
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.auth.visible_dbs_label"));
+            ui.add(
+                TextEdit::singleline(&mut dlg.manually_visible_dbs)
+                    .desired_width(240.0)
+                    .hint_text(lang.tr("form.auth.visible_dbs_placeholder")),
+            );
+        });
+        ui.colored_label(HINT_GRAY, lang.tr("form.auth.visible_dbs_hint"));
+    }
     None
 }
 
@@ -592,6 +810,10 @@ fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
     if !dlg.ssh_enabled {
         return None;
     }
+    if dlg.mode == ConnectionMode::ReplicaSet {
+        ui.colored_label(HINT_GRAY, lang.tr("form.ssh.disabled_hint"));
+        ui.set_enabled(false);
+    }
     ui.horizontal(|ui| {
         ui.label(lang.tr("form.ssh.address"));
         ui.add(TextEdit::singleline(&mut dlg.ssh_host).desired_width(180.0));
@@ -599,22 +821,34 @@ fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
         ui.add(DragValue::new(&mut dlg.ssh_port).range(1..=65535));
     });
     ui.horizontal(|ui| {
-        ui.label(lang.tr("common.user"));
-        ui.add(TextEdit::singleline(&mut dlg.ssh_user).desired_width(140.0));
+        ui.label(lang.tr("form.ssh.user_name"));
+        ui.add(TextEdit::singleline(&mut dlg.ssh_user).desired_width(160.0));
+    });
+    ui.horizontal(|ui| {
+        ui.label(lang.tr("form.ssh.auth_method"));
         let mut auth = dlg.ssh_auth;
-        ComboBox::from_label(lang.tr("form.ssh.auth"))
+        ComboBox::from_label("")
             .selected_text(match auth {
                 SshAuthMethod::Password => lang.tr("ssh.password"),
                 SshAuthMethod::PublicKey => lang.tr("ssh.key"),
             })
             .show_ui(ui, |ui| {
-                ui.selectable_value(&mut auth, SshAuthMethod::PublicKey, lang.tr("ssh.key"));
                 ui.selectable_value(&mut auth, SshAuthMethod::Password, lang.tr("ssh.password"));
+                ui.selectable_value(&mut auth, SshAuthMethod::PublicKey, lang.tr("ssh.key"));
             });
         dlg.ssh_auth = auth;
     });
     let mut req: Option<(u8, String)> = None;
     match dlg.ssh_auth {
+        SshAuthMethod::Password => {
+            pw_row(
+                ui,
+                lang.tr("form.ssh.user_password"),
+                &mut dlg.ssh_password,
+                &mut dlg.show_ssh_password,
+                lang,
+            );
+        }
         SshAuthMethod::PublicKey => {
             let key = dlg.ssh_key.clone();
             ui.horizontal(|ui| {
@@ -624,18 +858,21 @@ fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
                     req = Some((3, key));
                 }
             });
-        }
-        SshAuthMethod::Password => {
-            ui.horizontal(|ui| {
-                ui.label(lang.tr("form.password"));
-                ui.add(TextEdit::singleline(&mut dlg.ssh_password).desired_width(220.0));
-            });
+            ui.colored_label(HINT_GRAY, lang.tr("form.ssh.private_key_placeholder"));
         }
     }
-    ui.horizontal(|ui| {
-        ui.label(lang.tr("form.ssh.passphrase"));
-        ui.add(TextEdit::singleline(&mut dlg.ssh_passphrase).desired_width(220.0));
-    });
+    pw_row(
+        ui,
+        lang.tr("form.ssh.passphrase"),
+        &mut dlg.ssh_passphrase,
+        &mut dlg.show_ssh_passphrase,
+        lang,
+    );
+    let ask_label = match dlg.ssh_auth {
+        SshAuthMethod::Password => lang.tr("form.ssh.ask_password"),
+        SshAuthMethod::PublicKey => lang.tr("form.ssh.ask_passphrase"),
+    };
+    ui.checkbox(&mut dlg.ssh_ask_password_each_time, ask_label);
     req
 }
 
@@ -644,31 +881,88 @@ fn render_tls_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
     if !dlg.ssl_enabled {
         return None;
     }
-    let mut validate_cert = !dlg.ssl_allow_invalid;
-    ui.checkbox(&mut validate_cert, lang.tr("form.tls.validate"));
-    dlg.ssl_allow_invalid = !validate_cert;
-
     let mut req: Option<(u8, String)> = None;
-    let ca = dlg.ssl_ca_file.clone();
+
     ui.horizontal(|ui| {
-        ui.label(lang.tr("form.tls.ca_file"));
-        ui.add(TextEdit::singleline(&mut dlg.ssl_ca_file).desired_width(220.0));
-        if ui.button(lang.tr("common.browse")).clicked() {
-            req = Some((0, ca));
-        }
+        ui.label(lang.tr("form.tls.auth_method"));
+        let mut self_signed = dlg.ssl_allow_invalid;
+        ComboBox::from_label("")
+            .selected_text(if self_signed {
+                lang.tr("form.tls.auth_self")
+            } else {
+                lang.tr("form.tls.auth_ca")
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self_signed, true, lang.tr("form.tls.auth_self"));
+                ui.selectable_value(&mut self_signed, false, lang.tr("form.tls.auth_ca"));
+            });
+        dlg.ssl_allow_invalid = self_signed;
     });
-    let cert = dlg.ssl_cert_file.clone();
-    ui.horizontal(|ui| {
-        ui.label(lang.tr("form.tls.cert_file"));
-        ui.add(TextEdit::singleline(&mut dlg.ssl_cert_file).desired_width(220.0));
-        if ui.button(lang.tr("common.browse")).clicked() {
-            req = Some((1, cert));
-        }
-    });
-    ui.horizontal(|ui| {
-        ui.label(lang.tr("form.tls.key_file"));
-        ui.add(TextEdit::singleline(&mut dlg.ssl_key_file).desired_width(220.0));
-    });
+    if dlg.ssl_allow_invalid {
+        ui.colored_label(HINT_GRAY, lang.tr("form.tls.self_signed_info"));
+    } else {
+        let ca = dlg.ssl_ca_file.clone();
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.tls.ca_file"));
+            ui.add(TextEdit::singleline(&mut dlg.ssl_ca_file).desired_width(220.0));
+            if ui.button(lang.tr("common.browse")).clicked() {
+                req = Some((0, ca));
+            }
+        });
+    }
+
+    ui.checkbox(&mut dlg.ssl_use_pem, lang.tr("form.tls.use_pem"));
+    if !dlg.ssl_use_pem {
+        ui.colored_label(HINT_GRAY, lang.tr("form.tls.pem_info"));
+    } else {
+        let cert = dlg.ssl_cert_file.clone();
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.tls.pem_file"));
+            ui.add(TextEdit::singleline(&mut dlg.ssl_cert_file).desired_width(220.0));
+            if ui.button(lang.tr("common.browse")).clicked() {
+                req = Some((1, cert));
+            }
+        });
+        pw_row(
+            ui,
+            lang.tr("form.tls.pem_passphrase"),
+            &mut dlg.ssl_pem_passphrase,
+            &mut dlg.show_pem_passphrase,
+            lang,
+        );
+        ui.checkbox(&mut dlg.ssl_ask_pem_passphrase, lang.tr("form.tls.ask_pem_pass"));
+    }
+
+    ui.checkbox(&mut dlg.ssl_advanced_options, lang.tr("form.tls.advanced"));
+    if dlg.ssl_advanced_options {
+        let crl = dlg.ssl_crl_file.clone();
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.tls.crl"));
+            ui.add(TextEdit::singleline(&mut dlg.ssl_crl_file).desired_width(220.0));
+            if ui.button(lang.tr("common.browse")).clicked() {
+                req = Some((2, crl));
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label(lang.tr("form.tls.invalid_hostnames"));
+            let mut allowed = dlg.ssl_allow_invalid_hostnames;
+            ComboBox::from_label("")
+                .selected_text(if allowed {
+                    lang.tr("form.tls.invalid_allowed")
+                } else {
+                    lang.tr("form.tls.invalid_not_allowed")
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut allowed,
+                        false,
+                        lang.tr("form.tls.invalid_not_allowed"),
+                    );
+                    ui.selectable_value(&mut allowed, true, lang.tr("form.tls.invalid_allowed"));
+                });
+            dlg.ssl_allow_invalid_hostnames = allowed;
+        });
+    }
     req
 }
 
@@ -677,12 +971,7 @@ fn render_advanced_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Opt
         ui.label(lang.tr("settings.default_db"));
         ui.add(TextEdit::singleline(&mut dlg.default_db).desired_width(200.0));
     });
-    ui.horizontal(|ui| {
-        if ui.button(lang.tr("settings.from_uri")).clicked() {
-            // URI 导入占位（保持现有字段结构，不新增数据模型）。
-        }
-        ui.label(lang.tr("settings.uri_placeholder"));
-    });
+    ui.colored_label(HINT_GRAY, lang.tr("settings.default_db_hint"));
     None
 }
 
@@ -810,6 +1099,77 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
     }
     if cancel {
         state.insert_doc_open = false;
+    }
+}
+
+/// 导出文档对话框：文件路径输入 + 保存（单个或全部结果）。
+fn render_export_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    let mut save = false;
+    let mut cancel = false;
+    Window::new(lang.tr("doc.export_title"))
+        .open(&mut state.export_open)
+        .resizable(true)
+        .default_size([480.0, 180.0])
+        .show(ctx, |ui| {
+            let count = match state.export_doc_index {
+                Some(i) => state.documents.get(i).map(|_| 1).unwrap_or(0),
+                None => state.documents.len(),
+            };
+            ui.label(format!("{}: {}", lang.tr("doc.export_count"), count));
+            ui.label(lang.tr("doc.export_path"));
+            ui.text_edit_singleline(&mut state.export_path);
+            ui.horizontal(|ui| {
+                if ui.button(lang.tr("common.cancel")).clicked() {
+                    cancel = true;
+                }
+                if primary_button(ui, None, lang.tr("common.save")) {
+                    save = true;
+                }
+            });
+        });
+    if cancel {
+        state.export_open = false;
+    }
+    if save {
+        let path = state.export_path.clone();
+        let docs: Vec<Document> = match state.export_doc_index {
+            Some(i) => state.documents.get(i).cloned().into_iter().collect(),
+            None => state.documents.clone(),
+        };
+        state.export_documents(&path, &docs);
+        state.export_open = false;
+    }
+}
+
+/// 导入文档对话框：文件路径输入 + 导入（数组或单个文档对象）。
+fn render_import_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    let mut import = false;
+    let mut cancel = false;
+    Window::new(lang.tr("doc.import_title"))
+        .open(&mut state.import_open)
+        .resizable(true)
+        .default_size([480.0, 180.0])
+        .show(ctx, |ui| {
+            ui.label(lang.tr("doc.import_path"));
+            ui.text_edit_singleline(&mut state.import_path);
+            ui.horizontal(|ui| {
+                if ui.button(lang.tr("common.cancel")).clicked() {
+                    cancel = true;
+                }
+                if primary_button(ui, None, lang.tr("common.import")) {
+                    import = true;
+                }
+            });
+        });
+    if cancel {
+        state.import_open = false;
+    }
+    if import {
+        let path = state.import_path.clone();
+        state.import_documents(&path);
+        state.import_open = false;
     }
 }
 
@@ -968,6 +1328,142 @@ fn render_version_caps_dialog(ctx: &Context, state: &mut AppState) {
     }
 }
 
+/// 服务器状态对话框：概览 / 连接 / 内存 / 操作计数 / 断言 / 主机 / 副本集拓扑 / 诊断。
+fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    let mut close = false;
+    let gate = state.service.as_ref().and_then(|s| s.feature_gate());
+    Window::new(lang.tr("server_status.title"))
+        .open(&mut state.server_status_open)
+        .resizable(true)
+        .default_size([680.0, 560.0])
+        .show(ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                let ss = state.server_status_doc.clone();
+                if ss.is_none() {
+                    ui.label(lang.tr("server_status.loading"));
+                }
+                if let Some(ss) = &ss {
+                    // ---- 概览 ----
+                    ui.heading(lang.tr("server_status.overview"));
+                    if let Some(v) = ss.get_str("version").ok() {
+                        ui.label(format!("{}: {}", lang.tr("server_status.version"), v));
+                    }
+                    let uptime = ss.get_f64("uptime").unwrap_or(0.0);
+                    ui.label(format!("{}: {:.0}", lang.tr("server_status.uptime"), uptime));
+                    ui.separator();
+
+                    // ---- 连接 ----
+                    ui.heading(lang.tr("server_status.connections"));
+                    if let Some(c) = ss.get_document("connections").ok() {
+                        let cur = c.get_i64("current").unwrap_or(0);
+                        let avail = c.get_i64("available").unwrap_or(0);
+                        ui.label(format!("{} / {}", cur, avail));
+                    }
+                    ui.separator();
+
+                    // ---- 内存 ----
+                    ui.heading(lang.tr("server_status.memory"));
+                    if let Some(m) = ss.get_document("mem").ok() {
+                        let resident = m.get_i64("resident").unwrap_or(0);
+                        let virt = m.get_i64("virtual").unwrap_or(0);
+                        ui.label(format!("{}: {} MB  /  {} MB", resident, virt, lang.tr("server_status.memory")));
+                    }
+                    ui.separator();
+
+                    // ---- 操作计数 ----
+                    ui.heading(lang.tr("server_status.opcounters"));
+                    if let Some(o) = ss.get_document("opcounters").ok() {
+                        for k in ["insert", "query", "update", "delete", "getmore", "command"] {
+                            let v = o.get_i64(k).unwrap_or(0);
+                            ui.label(format!("{}: {}", k, v));
+                        }
+                    }
+                    ui.separator();
+
+                    // ---- 断言 ----
+                    ui.heading(lang.tr("server_status.asserts"));
+                    if let Some(a) = ss.get_document("asserts").ok() {
+                        for k in ["regular", "warning", "msg", "user", "rollovers"] {
+                            let v = a.get_i64(k).unwrap_or(0);
+                            ui.label(format!("{}: {}", k, v));
+                        }
+                    }
+                    ui.separator();
+                }
+
+                // ---- 主机信息 ----
+                if let Some(hi) = &state.host_info_doc {
+                    ui.heading(lang.tr("server_status.host"));
+                    if let Some(sys) = hi.get_document("system").ok() {
+                        if let Some(v) = sys.get_i64("numCores").ok() {
+                            ui.label(format!("numCores: {}", v));
+                        }
+                        if let Some(v) = sys.get_i64("memSizeMB").ok() {
+                            ui.label(format!("memSizeMB: {}", v));
+                        }
+                    }
+                    ui.separator();
+                }
+
+                // ---- 副本集拓扑 ----
+                ui.heading(lang.tr("server_status.replset"));
+                match &state.repl_status_doc {
+                    Some(rs) => {
+                        if let Some(members) = rs.get_array("members").ok() {
+                            for m in members {
+                                if let Some(doc) = m.as_document() {
+                                    let name = doc.get_str("name").unwrap_or_default().to_string();
+                                    let state_str = doc.get_str("stateStr").unwrap_or_default().to_string();
+                                    let health = doc.get_f64("health").unwrap_or(0.0);
+                                    ui.label(format!(
+                                        "{}  [{}]  health={}",
+                                        name, state_str, health
+                                    ));
+                                }
+                            }
+                        } else if let Some(set) = rs.get_str("set").ok() {
+                            ui.label(format!("replica set: {} (无 members 字段)", set));
+                        } else {
+                            ui.label(lang.tr("server_status.standalone_or_err"));
+                        }
+                    }
+                    None => {
+                        ui.label(lang.tr("server_status.standalone_or_err"));
+                    }
+                }
+                ui.separator();
+
+                // ---- 诊断 / 版本能力 ----
+                ui.heading(lang.tr("server_status.diagnostics"));
+                if let Some(g) = gate {
+                    for cap in g.summary() {
+                        let mark = if cap.supported {
+                            format!("✓ {}", lang.tr("caps.supported"))
+                        } else {
+                            format!("✗ {}", lang.tr("caps.unsupported"))
+                        };
+                        ui.label(format!(
+                            "{}  ({} {})  {}",
+                            cap.name,
+                            lang.tr("caps.since_label"),
+                            cap.since,
+                            mark
+                        ));
+                    }
+                } else {
+                    ui.label(lang.tr("caps.not_connected"));
+                }
+            });
+            if ui.button(lang.tr("common.close")).clicked() {
+                close = true;
+            }
+        });
+    if close {
+        state.server_status_open = false;
+    }
+}
+
 // ---------------------------------------------------------------- §15 测试诊断 / 文件选择 / Toast
 
 /// 连接测试诊断弹窗（§12 Test 按钮触发）。
@@ -1030,27 +1526,97 @@ fn render_browse_dialog(ctx: &Context, state: &mut AppState) {
 
 // ---------------------------------------------------------------- 索引 / 用户
 
-/// 索引只读弹窗。
+/// 索引管理弹窗：列出已有索引，并支持新建 / 删除（可写）。
 fn render_indexes_dialog(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
     let db = state.indexes_dlg_db.clone();
+    let coll = state.indexes_dlg_coll.clone();
     let mut open = state.indexes_dlg_open;
     let mut close_requested = false;
-    Window::new(format!("{} - {}", lang.tr("indexes.caption"), db))
+    Window::new(format!("{} - {}.{}", lang.tr("indexes.caption"), db, coll))
         .open(&mut open)
         .resizable(true)
-        .default_size([480.0, 360.0])
+        .default_size([480.0, 380.0])
         .show(ctx, |ui| {
-            if state.indexes.is_empty() {
-                ui.label(lang.tr("index.empty"));
-            } else {
-                for idx in &state.indexes {
-                    ui.label(format!(
-                        "• {}  keys={} {}",
-                        idx.name,
-                        serde_json::to_string(&idx.keys).unwrap_or_default(),
-                        if idx.unique { "[唯一]" } else { "" }
-                    ));
+            if let Some(info) = &state.server_info {
+                ui.label(format!("{} {}  {}", lang.tr("caps.version_label"), info.version, info.edition));
+            }
+            ui.horizontal(|ui| {
+                ui.heading(lang.tr("index.existing"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button(lang.tr("index.create")).clicked() {
+                        state.index_create_open = !state.index_create_open;
+                    }
+                });
+            });
+            if state.index_create_open {
+                Frame::none().fill(ZEBRA).show(ui, |ui| {
+                    ui.label(lang.tr("index.field"));
+                    ui.text_edit_singleline(&mut state.index_create_field);
+                    ui.label(lang.tr("index.field_hint"));
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut state.index_create_unique, lang.tr("index.unique"));
+                        ui.label(lang.tr("index.name"));
+                        ui.text_edit_singleline(&mut state.index_create_name);
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button(lang.tr("common.cancel")).clicked() {
+                            state.index_create_open = false;
+                            state.index_create_field.clear();
+                            state.index_create_name.clear();
+                            state.index_create_unique = false;
+                        }
+                        if primary_button(ui, None, lang.tr("common.create")) {
+                            let f = state.index_create_field.clone();
+                            let n = state.index_create_name.clone();
+                            let uq = state.index_create_unique;
+                            state.create_index(&db, &coll, &f, &n, uq);
+                            state.index_create_open = false;
+                            state.index_create_field.clear();
+                            state.index_create_name.clear();
+                            state.index_create_unique = false;
+                        }
+                    });
+                });
+            }
+            ui.separator();
+            let indexes = state.indexes.clone();
+            let mut drop_name: Option<String> = None;
+            let mut edit_name: Option<String> = None;
+            ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                if indexes.is_empty() {
+                    ui.label(lang.tr("index.empty"));
+                } else {
+                    for idx in &indexes {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{}  keys={} {}",
+                                idx.name,
+                                serde_json::to_string(&idx.keys).unwrap_or_default(),
+                                if idx.unique { "[唯一]" } else { "" }
+                            ));
+                            if ui.button(lang.tr("index.edit")).clicked() {
+                                edit_name = Some(idx.name.clone());
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui.button(lang.tr("common.delete")).clicked() {
+                                    drop_name = Some(idx.name.clone());
+                                }
+                            });
+                        });
+                    }
+                }
+            });
+            if let Some(name) = drop_name {
+                state.drop_index(&db, &coll, &name);
+            }
+            if let Some(old) = edit_name.take() {
+                if let Some(idx) = state.indexes.iter().find(|i| i.name == old) {
+                    state.index_edit_open = true;
+                    state.index_edit_old_name = idx.name.clone();
+                    state.index_edit_field = serde_json::to_string(&idx.keys).unwrap_or_default();
+                    state.index_edit_name = idx.name.clone();
+                    state.index_edit_unique = idx.unique;
                 }
             }
             ui.horizontal(|ui| {
@@ -1065,7 +1631,7 @@ fn render_indexes_dialog(ctx: &Context, state: &mut AppState) {
     state.indexes_dlg_open = open;
 }
 
-/// 用户只读弹窗。
+/// 用户管理弹窗：列出已有用户，并支持新建 / 删除（可写）。
 fn render_users_dialog(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
     let db = state.users_dlg_db.clone();
@@ -1074,18 +1640,88 @@ fn render_users_dialog(ctx: &Context, state: &mut AppState) {
     Window::new(format!("{} - {}", lang.tr("users.caption"), db))
         .open(&mut open)
         .resizable(true)
-        .default_size([480.0, 360.0])
+        .default_size([480.0, 380.0])
         .show(ctx, |ui| {
-            if state.users.is_empty() {
-                ui.label(lang.tr("user.empty"));
-            } else {
-                for u in &state.users {
-                    ui.label(format!(
-                        "• {} {} {}",
-                        u.name,
-                        lang.tr("user.roles"),
-                        u.roles.join(", ")
-                    ));
+            if let Some(info) = &state.server_info {
+                ui.label(format!("{} {}  {}", lang.tr("caps.version_label"), info.version, info.edition));
+            }
+            ui.horizontal(|ui| {
+                ui.heading(lang.tr("users.caption"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button(lang.tr("user.create")).clicked() {
+                        state.user_create_open = !state.user_create_open;
+                    }
+                });
+            });
+            if state.user_create_open {
+                Frame::none().fill(ZEBRA).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(lang.tr("user.name_label"));
+                        ui.text_edit_singleline(&mut state.user_create_name);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(lang.tr("user.pwd"));
+                        ui.text_edit_singleline(&mut state.user_create_pwd);
+                    });
+                    ui.label(lang.tr("user.roles_hint"));
+                    ui.text_edit_singleline(&mut state.user_create_roles);
+                    ui.horizontal(|ui| {
+                        if ui.button(lang.tr("common.cancel")).clicked() {
+                            state.user_create_open = false;
+                            state.user_create_name.clear();
+                            state.user_create_pwd.clear();
+                            state.user_create_roles.clear();
+                        }
+                        if primary_button(ui, None, lang.tr("common.create")) {
+                            let n = state.user_create_name.clone();
+                            let p = state.user_create_pwd.clone();
+                            let r = state.user_create_roles.clone();
+                            state.create_user(&db, &n, &p, &r);
+                            state.user_create_open = false;
+                            state.user_create_name.clear();
+                            state.user_create_pwd.clear();
+                            state.user_create_roles.clear();
+                        }
+                    });
+                });
+            }
+            ui.separator();
+            let users = state.users.clone();
+            let mut drop_name: Option<String> = None;
+            let mut edit_name: Option<String> = None;
+            ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                if users.is_empty() {
+                    ui.label(lang.tr("user.empty"));
+                } else {
+                    for u in &users {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{}  {} {}",
+                                u.name,
+                                lang.tr("user.roles"),
+                                u.roles.join(", ")
+                            ));
+                            if ui.button(lang.tr("user.edit")).clicked() {
+                                edit_name = Some(u.name.clone());
+                            }
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if ui.button(lang.tr("common.delete")).clicked() {
+                                    drop_name = Some(u.name.clone());
+                                }
+                            });
+                        });
+                    }
+                }
+            });
+            if let Some(name) = drop_name {
+                state.drop_user(&db, &name);
+            }
+            if let Some(name) = edit_name.take() {
+                if let Some(u) = state.users.iter().find(|x| x.name == name) {
+                    state.user_edit_open = true;
+                    state.user_edit_name = u.name.clone();
+                    state.user_edit_roles = u.roles.join(", ");
+                    state.user_edit_pwd.clear();
                 }
             }
             ui.horizontal(|ui| {
@@ -1098,6 +1734,90 @@ fn render_users_dialog(ctx: &Context, state: &mut AppState) {
         open = false;
     }
     state.users_dlg_open = open;
+}
+
+/// 编辑用户弹窗：名称只读，角色可改，密码可选（留空不改）。
+fn render_edit_user_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    let db = state.users_dlg_db.clone();
+    let mut save = false;
+    let mut cancel = false;
+    Window::new(lang.tr("user.edit_title"))
+        .open(&mut state.user_edit_open)
+        .resizable(true)
+        .default_size([420.0, 260.0])
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(lang.tr("user.name_label"));
+                ui.label(state.user_edit_name.clone());
+            });
+            ui.horizontal(|ui| {
+                ui.label(lang.tr("user.pwd_optional"));
+                ui.text_edit_singleline(&mut state.user_edit_pwd);
+            });
+            ui.label(lang.tr("user.roles_hint"));
+            ui.text_edit_singleline(&mut state.user_edit_roles);
+            ui.horizontal(|ui| {
+                if ui.button(lang.tr("common.cancel")).clicked() {
+                    cancel = true;
+                }
+                if primary_button(ui, None, lang.tr("common.save")) {
+                    save = true;
+                }
+            });
+        });
+    if cancel {
+        state.user_edit_open = false;
+    }
+    if save {
+        let n = state.user_edit_name.clone();
+        let p = state.user_edit_pwd.clone();
+        let r = state.user_edit_roles.clone();
+        state.edit_user(&db, &n, &p, &r);
+        state.user_edit_open = false;
+    }
+}
+
+/// 编辑索引弹窗：keys 以 JSON 编辑；保存走「删旧 + 建新」。
+fn render_edit_index_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    let db = state.indexes_dlg_db.clone();
+    let coll = state.indexes_dlg_coll.clone();
+    let mut save = false;
+    let mut cancel = false;
+    Window::new(lang.tr("index.edit_title"))
+        .open(&mut state.index_edit_open)
+        .resizable(true)
+        .default_size([480.0, 320.0])
+        .show(ctx, |ui| {
+            ui.label(lang.tr("index.field"));
+            ui.text_edit_singleline(&mut state.index_edit_field);
+            ui.label(lang.tr("index.field_hint"));
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut state.index_edit_unique, lang.tr("index.unique"));
+                ui.label(lang.tr("index.name"));
+                ui.text_edit_singleline(&mut state.index_edit_name);
+            });
+            ui.horizontal(|ui| {
+                if ui.button(lang.tr("common.cancel")).clicked() {
+                    cancel = true;
+                }
+                if primary_button(ui, None, lang.tr("common.save")) {
+                    save = true;
+                }
+            });
+        });
+    if cancel {
+        state.index_edit_open = false;
+    }
+    if save {
+        let old = state.index_edit_old_name.clone();
+        let f = state.index_edit_field.clone();
+        let n = state.index_edit_name.clone();
+        let uq = state.index_edit_unique;
+        state.edit_index(&db, &coll, &old, &f, &n, uq);
+        state.index_edit_open = false;
+    }
 }
 
 // ---------------------------------------------------------------- Toast

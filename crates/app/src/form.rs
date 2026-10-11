@@ -97,6 +97,31 @@ pub struct ConnectionForm {
     pub ssl_cert_file: String,
     /// TLS 客户端私钥/口令文件路径。
     pub ssl_key_file: String,
+    /// 认证：手动指定可见数据库开关（"Manually specify visible databases"）。
+    pub auth_visible_dbs_enabled: bool,
+    /// 认证：手动指定可见数据库列表（逗号分隔）。
+    pub manually_visible_dbs: String,
+    /// SSH：每次都询问密码/口令（"Ask for password/passphrase each time"）。
+    pub ssh_ask_password_each_time: bool,
+    /// TLS：PEM 模式开关（"Use PEM Cert./Key:"）。
+    pub ssl_use_pem: bool,
+    /// TLS：PEM 私钥口令。
+    pub ssl_pem_passphrase: String,
+    /// TLS：每次都询问 PEM 口令。
+    pub ssl_ask_pem_passphrase: bool,
+    /// TLS：高级选项（展开 CRL / 无效主机名）。
+    pub ssl_advanced_options: bool,
+    /// TLS：CRL 文件路径。
+    pub ssl_crl_file: String,
+    /// TLS：允许无效/不匹配主机名。
+    pub ssl_allow_invalid_hostnames: bool,
+    /// 密码明文切换（眼睛图标）。
+    pub show_auth_password: bool,
+    pub show_ssh_password: bool,
+    pub show_ssh_passphrase: bool,
+    pub show_pem_passphrase: bool,
+    /// From URI 输入框内容。
+    pub uri_text: String,
     /// 设置弹窗当前激活的标签页索引（Connection/Auth/SSH/TLS/Advanced）。
     pub tab_index: usize,
 }
@@ -134,6 +159,20 @@ impl Default for ConnectionForm {
             ssl_ca_file: String::new(),
             ssl_cert_file: String::new(),
             ssl_key_file: String::new(),
+            auth_visible_dbs_enabled: false,
+            manually_visible_dbs: String::new(),
+            ssh_ask_password_each_time: false,
+            ssl_use_pem: false,
+            ssl_pem_passphrase: String::new(),
+            ssl_ask_pem_passphrase: false,
+            ssl_advanced_options: false,
+            ssl_crl_file: String::new(),
+            ssl_allow_invalid_hostnames: false,
+            show_auth_password: false,
+            show_ssh_password: false,
+            show_ssh_passphrase: false,
+            show_pem_passphrase: false,
+            uri_text: String::new(),
             tab_index: 0,
         }
     }
@@ -179,7 +218,11 @@ impl ConnectionForm {
                     self.auth_source.clone()
                 },
                 mechanism: self.mechanism.to_opt(),
-                manually_visible_dbs: String::new(),
+                manually_visible_dbs: if self.auth_visible_dbs_enabled {
+                    self.manually_visible_dbs.clone()
+                } else {
+                    String::new()
+                },
             },
             ssh: SshSettings {
                 enabled: self.ssh_enabled,
@@ -198,6 +241,7 @@ impl ConnectionForm {
                 } else {
                     Some(self.ssh_passphrase.clone())
                 },
+                ask_password_each_time: self.ssh_ask_password_each_time,
                 local_port: self.ssh_local_port,
                 remote_host: self.ssh_remote_host.clone(),
                 remote_port: self.ssh_remote_port,
@@ -220,6 +264,20 @@ impl ConnectionForm {
                 } else {
                     Some(self.ssl_key_file.clone())
                 },
+                use_pem: self.ssl_use_pem,
+                pem_passphrase: if self.ssl_pem_passphrase.is_empty() {
+                    None
+                } else {
+                    Some(self.ssl_pem_passphrase.clone())
+                },
+                ask_pem_passphrase: self.ssl_ask_pem_passphrase,
+                advanced_options: self.ssl_advanced_options,
+                crl_file: if self.ssl_crl_file.is_empty() {
+                    None
+                } else {
+                    Some(self.ssl_crl_file.clone())
+                },
+                allow_invalid_hostnames: self.ssl_allow_invalid_hostnames,
             },
             default_database: if self.default_db.is_empty() {
                 None
@@ -257,11 +315,14 @@ impl ConnectionForm {
             ssh_password: s.ssh.password.clone(),
             ssh_key: s.ssh.private_key_path.clone().unwrap_or_default(),
             ssh_passphrase: s.ssh.passphrase.clone().unwrap_or_default(),
+            ssh_ask_password_each_time: s.ssh.ask_password_each_time,
             ssh_local_port: s.ssh.local_port,
             ssh_remote_host: s.ssh.remote_host.clone(),
             ssh_remote_port: s.ssh.remote_port,
             default_db: s.default_database.clone().unwrap_or_default(),
             direct: s.direct_connection,
+            auth_visible_dbs_enabled: !s.credential.manually_visible_dbs.is_empty(),
+            manually_visible_dbs: s.credential.manually_visible_dbs.clone(),
             host_input: s
                 .hosts
                 .first()
@@ -275,7 +336,154 @@ impl ConnectionForm {
             ssl_ca_file: s.ssl.ca_file.clone().unwrap_or_default(),
             ssl_cert_file: s.ssl.cert_file.clone().unwrap_or_default(),
             ssl_key_file: s.ssl.key_file.clone().unwrap_or_default(),
+            ssl_use_pem: s.ssl.use_pem,
+            ssl_pem_passphrase: s.ssl.pem_passphrase.clone().unwrap_or_default(),
+            ssl_ask_pem_passphrase: s.ssl.ask_pem_passphrase,
+            ssl_advanced_options: s.ssl.advanced_options,
+            ssl_crl_file: s.ssl.crl_file.clone().unwrap_or_default(),
+            ssl_allow_invalid_hostnames: s.ssl.allow_invalid_hostnames,
+            show_auth_password: false,
+            show_ssh_password: false,
+            show_ssh_passphrase: false,
+            show_pem_passphrase: false,
+            uri_text: String::new(),
             tab_index: 0,
         }
+    }
+
+    /// 解析 MongoDB URI 并回填到表单（best-effort），对应原版 "From URI" 按钮。
+    pub fn apply_uri(&mut self, uri: &str) {
+        let s = uri.trim();
+        if s.is_empty() {
+            return;
+        }
+        let rest = if let Some(r) = s.strip_prefix("mongodb+srv://") {
+            self.use_srv = true;
+            r
+        } else if let Some(r) = s.strip_prefix("mongodb://") {
+            self.use_srv = false;
+            r
+        } else {
+            return;
+        };
+
+        let (auth_host, query) = match rest.split_once('?') {
+            Some((a, q)) => (a, Some(q)),
+            None => (rest, None),
+        };
+        let (host_part, db) = match auth_host.split_once('/') {
+            Some((h, d)) => (h, if d.is_empty() { None } else { Some(d) }),
+            None => (auth_host, None),
+        };
+        let host_only = if let Some((userinfo, h)) = host_part.rsplit_once('@') {
+            if let Some((u, p)) = userinfo.split_once(':') {
+                self.auth_enabled = true;
+                self.user = u.to_string();
+                self.password = p.to_string();
+            } else if !userinfo.is_empty() {
+                self.auth_enabled = true;
+                self.user = userinfo.to_string();
+            }
+            h
+        } else {
+            host_part
+        };
+
+        let hosts: Vec<&str> = host_only.split(',').filter(|h| !h.is_empty()).collect();
+        if hosts.is_empty() {
+            return;
+        }
+        self.direct = false;
+        if self.use_srv {
+            let domain = hosts[0].split(':').next().unwrap_or(hosts[0]);
+            self.hosts_text = domain.to_string();
+            self.host_input = domain.to_string();
+            self.port_input = "27017".to_string();
+            self.mode = ConnectionMode::Standalone;
+        } else if hosts.len() > 1 {
+            self.mode = ConnectionMode::ReplicaSet;
+            self.hosts_text = hosts.iter().map(|h| h.to_string()).collect::<Vec<_>>().join("\n");
+            if let Some(first) = hosts.first() {
+                let (h, p) = first.rsplit_once(':').unwrap_or((first, "27017"));
+                self.host_input = h.to_string();
+                self.port_input = p.to_string();
+            }
+        } else {
+            self.mode = ConnectionMode::Standalone;
+            self.hosts_text = hosts[0].to_string();
+            let (h, p) = hosts[0].rsplit_once(':').unwrap_or((hosts[0], "27017"));
+            self.host_input = h.to_string();
+            self.port_input = p.to_string();
+        }
+        if let Some(d) = db {
+            self.default_db = d.to_string();
+        }
+        if let Some(q) = query {
+            for pair in q.split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    match k {
+                        "authSource" => self.auth_source = v.to_string(),
+                        "authMechanism" => {
+                            self.mechanism = match v.to_uppercase().as_str() {
+                                "SCRAM-SHA-1" => MechChoice::ScramSha1,
+                                "SCRAM-SHA-256" => MechChoice::ScramSha256,
+                                "MONGODB-CR" => MechChoice::MongoDbCr,
+                                _ => MechChoice::Auto,
+                            };
+                        }
+                        "tls" => {
+                            if v == "true" {
+                                self.ssl_enabled = true;
+                            }
+                        }
+                        "tlsAllowInvalidCertificates" => {
+                            if v == "true" {
+                                self.ssl_allow_invalid = true;
+                            }
+                        }
+                        "replicaSet" => {
+                            self.replica_set = v.to_string();
+                            if !self.use_srv {
+                                self.mode = ConnectionMode::ReplicaSet;
+                            }
+                        }
+                        "directConnection" => self.direct = v.eq_ignore_ascii_case("true"),
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn importing_multi_host_uri_clears_stale_direct_connection() {
+        let mut form = ConnectionForm {
+            direct: true,
+            ..Default::default()
+        };
+
+        form.apply_uri(
+            "mongodb://user:pass@first.example:27017,second.example:27017/dev",
+        );
+
+        let settings = form.to_settings();
+        assert_eq!(settings.hosts.len(), 2);
+        assert_eq!(settings.mode, ConnectionMode::ReplicaSet);
+        assert!(!settings.direct_connection);
+        assert!(!settings.build_uri().contains("directConnection=true"));
+    }
+
+    #[test]
+    fn importing_direct_connection_option_preserves_its_value() {
+        let mut form = ConnectionForm::default();
+
+        form.apply_uri("mongodb://localhost:27017/dev?directConnection=true");
+
+        assert!(form.to_settings().direct_connection);
     }
 }

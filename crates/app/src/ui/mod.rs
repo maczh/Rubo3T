@@ -7,5 +7,6 @@ pub mod dialogs;
 pub mod explorer;
 pub mod menu;
 pub mod result_view;
+pub mod syntax;
 pub mod toolbar;
 pub mod workspace;

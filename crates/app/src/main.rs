@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 //! Rubo3T —— 用 Rust 重写的 MongoDB 管理工具（MVP）。
 //!
 //! 目标：在保持原 Robo3T 1.4.4 使用习惯的前提下，用官方 `mongodb` Rust 驱动
@@ -38,15 +40,20 @@ impl eframe::App for AppState {
 
         // 日志面板（底部，受状态栏 Logs 按钮控制显隐）
         if self.show_logs {
-            TopBottomPanel::bottom("logs").resizable(true).default_height(120.0).show(ctx, |ui| {
-                ui.strong(self.lang.tr("logs.title"));
-                ui.separator();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for line in &self.logs {
-                        ui.label(line);
-                    }
+            TopBottomPanel::bottom("logs")
+                .resizable(true)
+                .default_height(120.0)
+                .show(ctx, |ui| {
+                    ui.strong(self.lang.tr("logs.title"));
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            for line in self.logs.iter().rev() {
+                                ui.add(egui::Label::new(line).wrap());
+                            }
+                        });
                 });
-            });
         }
 
         // 底部状态栏（紧贴窗口底部，位于日志面板之下）
@@ -60,7 +67,7 @@ impl eframe::App for AppState {
 fn main() -> eframe::Result<()> {
     let icon = crate::icons::window_icon();
     let mut viewport = ViewportBuilder::default()
-        .with_title("Robo 3T - 1.4.4")
+        .with_title("Rubo 3T - 1.4")
         .with_inner_size(Vec2::new(1280.0, 820.0));
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
@@ -70,7 +77,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Robo 3T - 1.4.4",
+        "Rubo 3T - 1.4",
         options,
         Box::new(|cc| Ok(Box::new(AppState::new(cc)))),
     )

@@ -6,15 +6,10 @@ license.workspace = true
 
 [dependencies]
 rubo3t-core = { path = "../core" }
-# 关键版本约束：锁定 3.7.x–3.8.x（< 3.9）。
-# - 3.9+ 放弃 MongoDB 4.2 及以下（最低要求 4.4）；而 3.1.x 虽文档支持 4.0，但其内部
-#   代码在新版 rustc 上无法编译（action/ gridfs/ search_index 等模块报 `!` 类型错误）。
-#   故取能编译的最高 3.x：范围 [3.7.0, 3.9) 会解析到 3.8.2——编译通过、支持 4.2 → 8.0。
-# - 实测：3.8.2 对 5.0.5 全链路通过；对 4.0 报 "requires at least 8 (MongoDB 4.2)"，
-#   因官方驱动把最低支持抬到了 4.2（4.0 仅 3.0/3.1 支持，但二者无法在现代 rustc 编译）。
-# - 3.x 自带 rustls-tls（默认 feature），避开 Windows 上的 OpenSSL。
-# 注：Rust 驱动整体不支持 < 3.6 的 MongoDB（3.0/3.2/3.4 无法用任何 Rust 驱动）。
-mongodb = { version = ">=3.7.0, <3.9", features = ["rustls-tls"] }
+# MongoDB 3.2.x driver supports MongoDB Server 4.0 (wire version 7) and builds
+# on the current Rust toolchain. Driver 3.3+ requires MongoDB Server 4.2.
+# rustls-tls avoids a native OpenSSL dependency on Windows.
+mongodb = { version = ">=3.2.0, <3.3", features = ["rustls-tls"] }
 tokio = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

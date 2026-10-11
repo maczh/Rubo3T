@@ -51,6 +51,24 @@ pub fn parse_filter_text(text: &str) -> RuboResult<Document> {
     parse_document_text(text)
 }
 
+/// 解析聚合管道文本（JSON 数组，每个元素为一个阶段文档）。
+/// 空输入返回空管道（等价于不过滤）。解析失败返回错误。
+pub fn parse_pipeline_text(text: &str) -> RuboResult<Vec<Document>> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: Value = serde_json::from_str(trimmed)?;
+    let arr = value.as_array().ok_or_else(|| {
+        RuboError::Parse("聚合管道必须是一个 JSON 数组".to_string())
+    })?;
+    let mut out = Vec::new();
+    for v in arr {
+        out.push(json_to_document(v)?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
