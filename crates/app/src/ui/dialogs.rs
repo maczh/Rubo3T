@@ -17,6 +17,7 @@ use crate::i18n::{trf, Lang};
 use crate::icons;
 use rubo3t_core::bson_ext;
 use rubo3t_core::settings::{validate, ConnectionMode, SshAuthMethod};
+use rubo3t_core::version::FeatureGate;
 
 /// Robo3T 蓝链颜色（#106CD6）。
 const LINK_BLUE: Color32 = Color32::from_rgb(0x10, 0x6C, 0xD6);
@@ -65,6 +66,9 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     }
     if state.about_open {
         render_about_dialog(ctx, state);
+    }
+    if state.version_caps_open {
+        render_version_caps_dialog(ctx, state);
     }
     if state.test_open {
         render_test_dialog(ctx, state);
@@ -368,9 +372,10 @@ fn render_connection_settings_dialog(ctx: &Context, state: &mut AppState) {
             ui.separator();
 
             ScrollArea::vertical().max_height(460.0).show(ui, |ui| {
+                let auth_gate = state.service.as_ref().and_then(|s| s.feature_gate());
                 pending_browse = match dlg.tab_index {
                     0 => render_connection_tab(ui, &mut dlg, lang),
-                    1 => render_auth_tab(ui, &mut dlg, lang),
+                    1 => render_auth_tab(ui, &mut dlg, lang, auth_gate),
                     2 => render_ssh_tab(ui, &mut dlg, lang),
                     3 => render_tls_tab(ui, &mut dlg, lang),
                     _ => render_advanced_tab(ui, &mut dlg, lang),
@@ -495,7 +500,7 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
     None
 }
 
-fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Option<FeatureGate>) -> Option<(u8, String)> {
     ui.checkbox(&mut dlg.auth_enabled, lang.tr("form.auth.perform"));
     if !dlg.auth_enabled {
         return None;
@@ -538,6 +543,47 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<
         dlg.mechanism = mech;
     });
     ui.label(lang.tr("form.mechanism.tip"));
+
+    // 版本感知警告：依据已连接服务器的 FeatureGate 提示该认证机制是否可用。
+    let warn: Option<&'static str> = match dlg.mechanism {
+        MechChoice::MongoDbCr => {
+            if let Some(g) = gate {
+                if !g.supports_mongodb_cr() {
+                    Some(lang.tr("auth.warn.cr_removed"))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        MechChoice::ScramSha256 => {
+            if let Some(g) = gate {
+                if !g.supports_scram_sha256() {
+                    Some(lang.tr("auth.warn.sha256_min"))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        MechChoice::ScramSha1 => {
+            if let Some(g) = gate {
+                if !g.supports_sessions() {
+                    Some(lang.tr("auth.warn.sha1_min"))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    if let Some(warn_text) = warn {
+        ui.colored_label(Color32::from_rgb(0xB0, 0x6A, 0x00), warn_text);
+    }
     None
 }
 
@@ -817,6 +863,108 @@ fn render_about_dialog(ctx: &Context, state: &mut AppState) {
         });
     if ok {
         state.about_open = false;
+    }
+}
+
+// ---------------------------------------------------------------- 版本能力自适应 UI
+
+/// 版本能力弹窗：展示当前服务器的版本能力矩阵与默认认证机制（差异化增值项）。
+///
+/// 复用 `FeatureGate` 能力矩阵，把 MongoDB 3.2→最新版本的自动适配在界面上呈现。
+fn render_version_caps_dialog(ctx: &Context, state: &mut AppState) {
+    let lang = state.lang;
+    // 先取出 owned 数据，规避 `state` 借用冲突。
+    let info = state.service.as_ref().and_then(|s| s.server_info()).cloned();
+    if let Some(info) = info {
+        let version = info.version;
+        let edition = info.edition.clone();
+        let host = info.host.clone();
+        let is_cluster = info.is_cluster;
+        let gate = FeatureGate::new(version);
+        let summary = gate.summary();
+        let default_auth = gate.default_auth_mechanism().to_string();
+        let active_name = state.active_name.clone();
+
+        let mut close = false;
+        Window::new(lang.tr("caps.title"))
+            .open(&mut state.version_caps_open)
+            .resizable(true)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                ui.columns(2, |cols| {
+                    cols[0].strong(lang.tr("caps.server_label"));
+                    cols[1].label(&active_name);
+                    cols[0].strong(lang.tr("caps.version_label"));
+                    cols[1].label(version.to_string());
+                    cols[0].strong(lang.tr("caps.edition_label"));
+                    cols[1].label(if edition.is_empty() {
+                        "(unknown)".to_string()
+                    } else {
+                        edition.clone()
+                    });
+                    cols[0].strong(lang.tr("caps.host_label"));
+                    cols[1].label(&host);
+                    cols[0].strong(lang.tr("caps.topology_label"));
+                    cols[1].label(if is_cluster {
+                        lang.tr("caps.cluster").to_string()
+                    } else {
+                        lang.tr("caps.standalone").to_string()
+                    });
+                    cols[0].strong(lang.tr("caps.default_auth_label"));
+                    cols[1].strong(default_auth.clone());
+                });
+
+                ui.separator();
+                ui.heading(lang.tr("caps.matrix_label"));
+                ui.columns(3, |cols| {
+                    for cap in &summary {
+                        cols[0].label(cap.name);
+                        cols[1].label(format!(
+                            "{}: {}",
+                            lang.tr("caps.since_label"),
+                            cap.since
+                        ));
+                        if cap.supported {
+                            cols[2].colored_label(
+                                Color32::from_rgb(0x2e, 0x7d, 0x32),
+                                format!("✓ {}", lang.tr("caps.supported")),
+                            );
+                        } else {
+                            cols[2].colored_label(
+                                Color32::from_rgb(0x9e, 0x9e, 0x9e),
+                                format!("✗ {}", lang.tr("caps.unsupported")),
+                            );
+                        }
+                    }
+                });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button(lang.tr("common.ok")).clicked() {
+                        close = true;
+                    }
+                });
+            });
+        if close {
+            state.version_caps_open = false;
+        }
+    } else {
+        let mut close = false;
+        Window::new(lang.tr("caps.title"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label(lang.tr("caps.not_connected"));
+                ui.horizontal(|ui| {
+                    if ui.button(lang.tr("common.ok")).clicked() {
+                        close = true;
+                    }
+                });
+            });
+        if close {
+            state.version_caps_open = false;
+        }
     }
 }
 

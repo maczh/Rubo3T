@@ -167,6 +167,8 @@ pub struct AppState {
 
     // 关于 / 测试 / 文件选择弹窗
     pub about_open: bool,
+    // 版本能力弹窗
+    pub version_caps_open: bool,
     pub test_open: bool,
     pub test_result: String,
     pub browse_open: bool,
@@ -310,6 +312,7 @@ impl AppState {
             users_dlg_open: false,
             users_dlg_db: String::new(),
             about_open: false,
+            version_caps_open: false,
             test_open: false,
             test_result: String::new(),
             browse_open: false,

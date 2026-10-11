@@ -17,6 +17,7 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     let mut act_prev_tab = false;
     let mut act_reexec = false;
     let mut act_duplicate = false;
+    let mut act_version_caps = false;
 
     TopBottomPanel::top("menu_bar").show(ctx, |ui| {
         menu::bar(ui, |ui| {
@@ -139,6 +140,10 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             });
 
             ui.menu_button(lang.tr("menu.help"), |ui| {
+                if ui.button(lang.tr("menu.version_caps")).clicked() {
+                    act_version_caps = true;
+                    ui.close_menu();
+                }
                 if ui.button(lang.tr("menu.about")).clicked() {
                     act_about = true;
                     ui.close_menu();
@@ -158,6 +163,9 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     }
     if act_about {
         state.about_open = true;
+    }
+    if act_version_caps {
+        state.version_caps_open = true;
     }
     if act_exit {
         std::process::exit(0);

@@ -618,9 +618,14 @@ pub fn render_status_bar(ctx: &Context, state: &mut AppState) {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let text = if state.service.is_some() {
+                    let mech = state
+                        .service
+                        .as_ref()
+                        .and_then(|s| s.feature_gate())
+                        .map(|g| g.default_auth_mechanism().to_string());
                     if let Some(info) = &state.server_info {
                         format!(
-                            "{} {} {}{}",
+                            "{} {} {}{}{}",
                             lang.tr("status.connected"),
                             state.active_name,
                             info.version,
@@ -628,7 +633,8 @@ pub fn render_status_bar(ctx: &Context, state: &mut AppState) {
                                 format!(" {}", lang.tr("status.cluster"))
                             } else {
                                 String::new()
-                            }
+                            },
+                            mech.map(|m| format!(" · {}", m)).unwrap_or_default()
                         )
                     } else {
                         format!("{} {}", lang.tr("status.connected"), state.active_name)

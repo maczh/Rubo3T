@@ -1,11 +1,17 @@
 //! Robo3T 图标资源接入层。
 //!
 //! 把从 Robo3T 1.4.4 源码提取的 PNG 图标在编译期用 `include_bytes!` 编入二进制，
-//! 运行时解码成 RGBA 纹理并注册到 egui 上下文（URI 形如 `icon://<name>`，可在
-//! `egui::Image` / `egui::ImageButton` 中直接引用）。同时提供窗口图标。
+//! 运行时解码成 RGBA 纹理后，通过 `ctx.load_texture` 注册到 egui 上下文，并把返回的
+//! `TextureHandle` 缓存进 [`ICON_HANDLES`]。`img` / `img_size` 直接基于 `TextureHandle`
+//! 构造 `egui::Image`（而非 `icon://<name>` URI）—— 因为在 egui 0.29 中，`icon://` URI
+//! 不会被 `DefaultTextureLoader` 反查到用 `load_texture` 注册的纹理，走 URI 只会得到裂图。
+//! 同时提供窗口图标。
+
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use eframe::egui;
-use egui::{ColorImage, Context, Id, Image, TextureOptions};
+use egui::{ColorImage, Context, Id, Image, TextureHandle, TextureOptions};
 
 /// 所有图标：(URI 名称, 编译期嵌入的 PNG 字节)。
 ///
@@ -120,6 +126,38 @@ fn floppy_icon() -> ColorImage {
     })
 }
 
+/// 已注册图标的纹理句柄表（按名称索引）。
+///
+/// egui 0.29 不会按 `icon://<name>` URI 反查通过 `ctx.load_texture` 注册的纹理，
+/// 因此这里把 `load_texture` 返回的 `TextureHandle` 直接缓存下来，`img` / `img_size`
+/// 改为基于 `TextureHandle` 构造 `Image`，从根本上解决裂图问题。
+static ICON_HANDLES: Mutex<Option<HashMap<String, TextureHandle>>> = Mutex::new(None);
+
+/// 把已注册图标的纹理句柄缓存进 [`ICON_HANDLES`]。
+fn insert_handle(name: &str, handle: TextureHandle) {
+    let mut reg = ICON_HANDLES
+        .lock()
+        .expect("icon handle registry poisoned");
+    reg.get_or_insert_with(HashMap::new)
+        .insert((*name).to_string(), handle);
+}
+
+/// 取出某个已注册图标的纹理句柄；若尚未注册则给出明确报错
+/// （说明 `register` 必须先在渲染前调用）。
+fn handle(name: &str) -> TextureHandle {
+    ICON_HANDLES
+        .lock()
+        .expect("icon handle registry poisoned")
+        .as_ref()
+        .and_then(|m| m.get(name).cloned())
+        .unwrap_or_else(|| {
+            panic!(
+                "图标 '{}' 尚未注册。请确认 icons::register(ctx) 已在首帧渲染前被调用。",
+                name
+            )
+        })
+}
+
 /// 标记：图标是否已全部注册（存于 egui 上下文，保证进程内只注册一次）。
 const REGISTERED_MARKER: &str = "robo3t_icons_registered";
 
@@ -143,11 +181,12 @@ pub fn register(ctx: &Context) {
                 let (w, h) = (rgba.width() as usize, rgba.height() as usize);
                 let pixels = rgba.into_raw();
                 let color_image = ColorImage::from_rgba_unmultiplied([w, h], &pixels);
-                let _ = ctx.load_texture(
+                let handle = ctx.load_texture(
                     format!("icon://{}", name),
                     color_image,
                     TextureOptions::default(),
                 );
+                insert_handle(name, handle);
                 ctx.data_mut(|d| d.insert_temp(per_icon, true));
             }
             Err(e) => {
@@ -165,11 +204,12 @@ pub fn register(ctx: &Context) {
             IconKind::Folder => folder_icon(),
             IconKind::Floppy => floppy_icon(),
         };
-        let _ = ctx.load_texture(
+        let handle = ctx.load_texture(
             format!("icon://{}", name),
             color_image,
             TextureOptions::default(),
         );
+        insert_handle(name, handle);
         ctx.data_mut(|d| d.insert_temp(per_icon, true));
     }
     ctx.data_mut(|d| d.insert_temp(marker, true));
@@ -179,14 +219,14 @@ pub fn register(ctx: &Context) {
 ///
 /// 调用处一般配合 `.fit_to_original_size(1.0)` 控制尺寸（工具栏 24×24、树 16×16 自然呈现）。
 pub fn img(name: &str) -> Image<'static> {
-    Image::new(format!("icon://{}", name))
+    Image::from_texture(&handle(name))
 }
 
 /// 构造一个固定边长（正方形）的图标 [`Image`]，等比缩放后不超过 `size` 像素。
 ///
 /// 用于状态栏/输出头/分页等需要精确像素尺寸的地方（如 16×16、24×24）。
 pub fn img_size(name: &str, size: f32) -> Image<'static> {
-    Image::new(format!("icon://{}", name)).max_size(egui::vec2(size, size))
+    Image::from_texture(&handle(name)).max_size(egui::vec2(size, size))
 }
 
 /// 返回窗口图标（解码 `logo-256x256.png`）。
