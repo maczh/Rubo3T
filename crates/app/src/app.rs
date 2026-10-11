@@ -44,6 +44,10 @@ pub struct QueryTab {
     pub title: String,
     pub db: String,
     pub coll: String,
+    /// 当前编辑器中的脚本文本（Robo3T 风格：`db.<coll>.find({...})`）。
+    pub script: String,
+    /// 脚本是否被修改过（未保存/未执行），用于标签标题前缀 "* "。
+    pub dirty: bool,
     pub filter: String,
     pub sort: String,
     pub limit: u64,
@@ -66,6 +70,8 @@ impl QueryTab {
             title,
             db,
             coll,
+            script: String::new(),
+            dirty: false,
             filter: "{}".to_string(),
             sort: "{}".to_string(),
             limit: 50,
@@ -126,8 +132,13 @@ pub struct AppState {
     // 用于渲染的「当前 tab 影子字段」，每帧从 active tab 同步。
     pub filter_text: String,
     pub sort_text: String,
+    pub script_text: String,
     pub limit: u64,
     pub skip: u64,
+    /// 分页「跳过」输入框文本（独立持久，避免每次按键都触发查询）。
+    pub skip_input: String,
+    /// 分页「批量大小」输入框文本。
+    pub batch_input: String,
     pub documents: Vec<Document>,
     pub selected_doc: Option<usize>,
     pub selected_doc_text: String,
@@ -141,6 +152,29 @@ pub struct AppState {
     pub view_doc_open: bool,
     pub view_doc_title: String,
     pub view_doc_text: String,
+
+    // 文档编辑/插入弹窗
+    pub edit_doc_open: bool,
+    pub edit_doc_title: String,
+    pub insert_doc_open: bool,
+
+    // 索引/用户只读弹窗
+    pub indexes_dlg_open: bool,
+    pub indexes_dlg_db: String,
+    pub indexes_dlg_coll: String,
+    pub users_dlg_open: bool,
+    pub users_dlg_db: String,
+
+    // 关于 / 测试 / 文件选择弹窗
+    pub about_open: bool,
+    pub test_open: bool,
+    pub test_result: String,
+    pub browse_open: bool,
+    /// 文件选择目标：0=CA 1=PEM Cert 2=PEM Key 3=SSH Private Key
+    pub browse_target: u8,
+    pub browse_path: String,
+    /// 连接列表「删除」确认弹窗待删除索引。
+    pub confirm_remove_idx: Option<usize>,
 
     // 右键菜单状态
     pub context_doc_idx: Option<usize>,
@@ -253,8 +287,11 @@ impl AppState {
             next_tab_id: 1,
             filter_text: "{}".to_string(),
             sort_text: "{}".to_string(),
+            script_text: String::new(),
             limit: 50,
             skip: 0,
+            skip_input: "0".to_string(),
+            batch_input: "50".to_string(),
             documents: Vec::new(),
             selected_doc: None,
             selected_doc_text: String::new(),
@@ -264,6 +301,21 @@ impl AppState {
             view_doc_open: false,
             view_doc_title: String::new(),
             view_doc_text: String::new(),
+            edit_doc_open: false,
+            edit_doc_title: String::new(),
+            insert_doc_open: false,
+            indexes_dlg_open: false,
+            indexes_dlg_db: String::new(),
+            indexes_dlg_coll: String::new(),
+            users_dlg_open: false,
+            users_dlg_db: String::new(),
+            about_open: false,
+            test_open: false,
+            test_result: String::new(),
+            browse_open: false,
+            browse_target: 0,
+            browse_path: String::new(),
+            confirm_remove_idx: None,
             context_doc_idx: None,
             context_menu_pos: None,
             indexes: Vec::new(),
@@ -358,7 +410,7 @@ impl AppState {
                 self.load_databases();
                 // 打开第一个数据库的欢迎标签页
                 if self.tabs.is_empty() {
-                    self.tabs.push(QueryTab::new(self.next_tab_id, "", self.lang.tr("welcome.title")));
+                    self.tabs.push(QueryTab::new(self.next_tab_id, "", ""));
                     self.active_tab = 0;
                 }
             }
@@ -369,6 +421,29 @@ impl AppState {
                 self.log(&trf(self.lang, "msg.connect_failed", &[&e.to_string()]));
             }
         }
+    }
+
+    /// 测试连接（§12 Connection Settings 的 Test 按钮）：建立临时 service 校验连通性，
+    /// 不影响当前已激活连接；结果写入 test_result 并由测试弹窗展示。
+    pub fn test_connection(&mut self, settings: ConnectionSettings) {
+        match self.rt.block_on(MongoService::connect(&settings)) {
+            Ok(svc) => {
+                let version = svc
+                    .server_info()
+                    .cloned()
+                    .map(|i| i.version.to_string())
+                    .unwrap_or_default();
+                let msg = trf(self.lang, "msg.connected", &[&settings.name, &version]);
+                self.test_result = msg.clone();
+                self.toast(&msg, false);
+            }
+            Err(e) => {
+                let msg = trf(self.lang, "msg.connect_failed", &[&e.to_string()]);
+                self.test_result = msg.clone();
+                self.toast(&msg, true);
+            }
+        }
+        self.test_open = true;
     }
 
     pub fn disconnect(&mut self) {
@@ -436,6 +511,8 @@ impl AppState {
             self.next_tab_id += 1;
             let mut tab = QueryTab::new(id, db, coll);
             tab.view_mode = self.current_view_mode;
+            tab.script = format!("db.{}.find({{}})", coll);
+            tab.dirty = false;
             self.tabs.push(tab);
             self.active_tab = self.tabs.len() - 1;
             self.sync_from_active_tab();
@@ -448,6 +525,8 @@ impl AppState {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.filter = self.filter_text.clone();
             tab.sort = self.sort_text.clone();
+            tab.script = self.script_text.clone();
+            tab.dirty = tab.dirty || tab.script != self.script_text;
             tab.limit = self.limit;
             tab.skip = self.skip;
             tab.documents = self.documents.clone();
@@ -463,6 +542,7 @@ impl AppState {
         if let Some(tab) = self.tabs.get(self.active_tab) {
             self.filter_text = tab.filter.clone();
             self.sort_text = tab.sort.clone();
+            self.script_text = tab.script.clone();
             self.limit = tab.limit;
             self.skip = tab.skip;
             self.documents = tab.documents.clone();
@@ -474,32 +554,87 @@ impl AppState {
     }
 
     pub fn run_query(&mut self) {
-        let (db, coll) = match self.current_collection() {
-            Some(x) => x,
-            None => {
+        let parsed = match parse_script(&self.script_text) {
+            Ok(p) => p,
+            Err(e) => {
+                self.status(&format!("Failed to execute script. Error: {}", e));
+                return;
+            }
+        };
+        let db = match self.tabs.get(self.active_tab).map(|t| t.db.clone()) {
+            Some(d) if !d.is_empty() => d,
+            _ => {
                 self.status(self.lang.tr("query.select_collection_first"));
                 return;
             }
         };
-        let filter = match bson_ext::parse_filter_text(&self.filter_text) {
-            Ok(d) => d,
+        let coll = if parsed.coll.is_empty() {
+            match self.current_collection() {
+                Some((_, c)) => c,
+                None => {
+                    self.status(self.lang.tr("query.select_collection_first"));
+                    return;
+                }
+            }
+        } else {
+            parsed.coll.clone()
+        };
+        self.limit = parsed.limit;
+        self.skip = parsed.skip;
+        self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.dirty = false;
+            tab.limit = self.limit;
+            tab.skip = self.skip;
+            tab.coll = coll;
+        }
+    }
+
+    /// 分页刷新：重新解析脚本的 filter/sort，但使用当前分页控件（skip/limit）而非脚本里的 .skip()/.limit()。
+    pub fn run_query_paged(&mut self) {
+        let parsed = match parse_script(&self.script_text) {
+            Ok(p) => p,
             Err(e) => {
-                self.status(&trf(self.lang, "msg.parse.filter", &[&e.to_string()]));
+                self.status(&format!("Failed to execute script. Error: {}", e));
                 return;
             }
         };
-        let sort = match bson_ext::parse_filter_text(&self.sort_text) {
-            Ok(d) => d,
-            Err(e) => {
-                self.status(&trf(self.lang, "msg.parse.sort", &[&e.to_string()]));
+        let db = match self.tabs.get(self.active_tab).map(|t| t.db.clone()) {
+            Some(d) if !d.is_empty() => d,
+            _ => {
+                self.status(self.lang.tr("query.select_collection_first"));
                 return;
             }
         };
+        let coll = if parsed.coll.is_empty() {
+            match self.current_collection() {
+                Some((_, c)) => c,
+                None => {
+                    self.status(self.lang.tr("query.select_collection_first"));
+                    return;
+                }
+            }
+        } else {
+            parsed.coll.clone()
+        };
+        self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
+    }
+
+    /// 真正的查询执行：调用 mongo 服务，回填 documents / query_time_ms 到 active tab。
+    fn execute_query(
+        &mut self,
+        db: &str,
+        coll: &str,
+        filter: &Document,
+        sort: &Document,
+        limit: u64,
+        skip: u64,
+    ) {
         if let Some(svc) = &self.service {
             let start = std::time::Instant::now();
             match self
                 .rt
-                .block_on(svc.find(&db, &coll, &filter, &sort, self.limit, self.skip))
+                .block_on(svc.find(db, coll, filter, sort, limit, skip))
             {
                 Ok(docs) => {
                     self.documents = docs;
@@ -511,7 +646,16 @@ impl AppState {
                         "msg.query_returned",
                         &[&self.documents.len().to_string()],
                     ));
-                    self.log(&format!("{}: {} docs, {} ms", self.lang.tr("query.run"), self.documents.len(), elapsed));
+                    self.log(&format!(
+                        "{}: {} docs, {} ms",
+                        self.lang.tr("query.run"),
+                        self.documents.len(),
+                        elapsed
+                    ));
+                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+                        tab.documents = self.documents.clone();
+                        tab.query_time_ms = elapsed;
+                    }
                 }
                 Err(e) => self.status(&trf(self.lang, "msg.query_failed", &[&e.to_string()])),
             }
@@ -705,13 +849,38 @@ impl AppState {
         }
     }
 
+    /// 打开数据库级别「索引」只读弹窗，并加载该库首个集合的索引。
+    pub fn open_indexes_dialog(&mut self, db: &str, coll: &str) {
+        self.indexes_dlg_db = db.to_string();
+        self.indexes_dlg_coll = coll.to_string();
+        self.indexes_dlg_open = true;
+        if let Some(svc) = &self.service {
+            match self.rt.block_on(svc.list_indexes(db, coll)) {
+                Ok(i) => self.indexes = i,
+                Err(e) => self.toast(&trf(self.lang, "index.load_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
+    /// 打开数据库级别「用户」只读弹窗，并加载该库用户。
+    pub fn open_users_dialog(&mut self, db: &str) {
+        self.users_dlg_db = db.to_string();
+        self.users_dlg_open = true;
+        if let Some(svc) = &self.service {
+            match self.rt.block_on(svc.list_users(db)) {
+                Ok(u) => self.users = u,
+                Err(e) => self.toast(&trf(self.lang, "user.load_failed", &[&e.to_string()]), true),
+            }
+        }
+    }
+
     pub fn close_tab(&mut self, idx: usize) {
         if idx >= self.tabs.len() {
             return;
         }
         self.tabs.remove(idx);
         if self.tabs.is_empty() {
-            self.tabs.push(QueryTab::new(self.next_tab_id, "", self.lang.tr("welcome.title")));
+            self.tabs.push(QueryTab::new(self.next_tab_id, "", ""));
             self.next_tab_id += 1;
             self.active_tab = 0;
         } else if self.active_tab >= self.tabs.len() {
@@ -719,4 +888,277 @@ impl AppState {
         }
         self.sync_from_active_tab();
     }
+
+    /// 关闭除 `idx` 之外的所有标签页。
+    pub fn close_other_tabs(&mut self, idx: usize) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let keep = self.tabs[idx].clone();
+        self.tabs = vec![keep];
+        self.active_tab = 0;
+        self.sync_from_active_tab();
+    }
+
+    /// 关闭 `idx` 右侧的所有标签页。
+    pub fn close_tabs_to_right(&mut self, idx: usize) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        self.tabs.truncate(idx + 1);
+        if self.active_tab > idx {
+            self.active_tab = idx;
+        }
+        self.sync_from_active_tab();
+    }
+}
+
+// =====================================================================
+// 脚本解析器（手写，不依赖 regex crate）
+//
+// 支持形如：
+//   db.users.find({})
+//   db.getCollection('users').find({a:1}).sort({age:-1}).limit(10).skip(5)
+// 解析出集合名、filter、sort、limit、skip。
+// =====================================================================
+
+/// `parse_script` 的解析结果。
+struct ParsedQuery {
+    coll: String,
+    filter: Document,
+    sort: Document,
+    limit: u64,
+    skip: u64,
+}
+
+/// 解析 Robo3T 风格查询脚本。失败时返回人类可读错误（供状态栏展示）。
+fn parse_script(script: &str) -> Result<ParsedQuery, String> {
+    let s = script.trim();
+    let find_pos = s
+        .find(".find(")
+        .ok_or_else(|| "找不到 find() 调用".to_string())?;
+    let coll_expr = s[..find_pos].trim();
+    let coll = parse_collection_name(coll_expr)?;
+    let open = s[find_pos..]
+        .find('(')
+        .map(|p| find_pos + p)
+        .ok_or_else(|| "find() 括号不匹配".to_string())?;
+    let close = find_matching_paren(s, open)
+        .ok_or_else(|| "find() 括号不匹配".to_string())?;
+    let args = s[open + 1..close].trim();
+    // 顶层按逗号拆分，取第一段作为 filter（忽略可选的 projection 第二段）
+    let filter_str = split_top_level(args, ',')
+        .into_iter()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let filter = parse_doc(&filter_str)?;
+
+    let mut rest = &s[close + 1..];
+    let mut sort = Document::new();
+    let mut limit = 50u64;
+    let mut skip = 0u64;
+
+    loop {
+        let t = rest.trim_start();
+        if let Some(after) = t.strip_prefix(".sort(") {
+            // after 形如 "{a:-1}).limit(5)"
+            let close_brace = find_matching_brace(after)
+                .ok_or_else(|| "sort() 括号不匹配".to_string())?;
+            let sort_str = after[1..close_brace].trim();
+            sort = parse_doc(sort_str)?;
+            rest = &after[close_brace + 1..];
+        } else if let Some(after) = t.strip_prefix(".limit(") {
+            // after 形如 "10).skip(5)"
+            let c = after
+                .find(')')
+                .ok_or_else(|| "limit() 缺少右括号".to_string())?;
+            limit = parse_u64(&after[..c])?;
+            rest = &after[c + 1..];
+        } else if let Some(after) = t.strip_prefix(".skip(") {
+            let c = after
+                .find(')')
+                .ok_or_else(|| "skip() 缺少右括号".to_string())?;
+            skip = parse_u64(&after[..c])?;
+            rest = &after[c + 1..];
+        } else {
+            break;
+        }
+    }
+
+    Ok(ParsedQuery {
+        coll,
+        filter,
+        sort,
+        limit,
+        skip,
+    })
+}
+
+/// 从集合表达式中解析集合名：`db.getCollection('x')` 或 `db.x`。
+fn parse_collection_name(expr: &str) -> Result<String, String> {
+    let expr = expr.trim();
+    if let Some(pos) = expr.find("getCollection(") {
+        let start = pos + "getCollection(".len();
+        let tail = &expr[start..];
+        let quote_pos = tail
+            .find(|c| c == '\'' || c == '"')
+            .ok_or_else(|| "无法解析 getCollection 参数".to_string())?;
+        let quote = tail[quote_pos..].chars().next().unwrap();
+        let inner = &tail[quote_pos + 1..];
+        let end = inner
+            .find(quote)
+            .ok_or_else(|| "getCollection 字符串未闭合".to_string())?;
+        return Ok(inner[..end].to_string());
+    }
+    if let Some(stripped) = expr.strip_prefix("db.") {
+        let name: String = stripped
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() {
+            return Err("无法解析集合名".to_string());
+        }
+        return Ok(name);
+    }
+    Err("无法解析集合表达式".to_string())
+}
+
+/// 解析一段文档文本（JSON 对象）为 BSON Document。
+fn parse_doc(s: &str) -> Result<Document, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Ok(Document::new());
+    }
+    bson_ext::parse_filter_text(s).map_err(|e| format!("解析文档失败: {}", e))
+}
+
+/// 解析无符号整数（limit/skip 用）。
+fn parse_u64(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    s.parse::<u64>()
+        .map_err(|e| format!("无法解析数字 '{}': {}", s, e))
+}
+
+/// 在顶层（忽略字符串/括号内部）按分隔符拆分。
+fn split_top_level(s: &str, sep: char) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut quote = b' ';
+    let mut cur = String::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+        if in_str {
+            cur.push(c);
+            if c == '\\' && i + 1 < bytes.len() {
+                cur.push(bytes[i + 1] as char);
+                i += 2;
+                continue;
+            }
+            if (c as u8) == quote {
+                in_str = false;
+            }
+        } else {
+            match c {
+                '\'' | '"' => {
+                    in_str = true;
+                    quote = c as u8;
+                    cur.push(c);
+                }
+                '{' | '(' | '[' => {
+                    depth += 1;
+                    cur.push(c);
+                }
+                '}' | ')' | ']' => {
+                    depth -= 1;
+                    cur.push(c);
+                }
+                _ if c == sep && depth == 0 => {
+                    parts.push(std::mem::take(&mut cur));
+                }
+                _ => cur.push(c),
+            }
+        }
+        i += 1;
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur);
+    }
+    parts
+}
+
+/// 从 `s[open]` 处的 '(' 开始，找到匹配的右括号位置（支持嵌套与字符串）。
+fn find_matching_paren(s: &str, open: usize) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.get(open) != Some(&b'(') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut quote = b' ';
+    let mut i = open;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == quote {
+                in_str = false;
+            }
+        } else if c == b'\'' || c == b'"' {
+            in_str = true;
+            quote = c;
+        } else if c == b'(' {
+            depth += 1;
+        } else if c == b')' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 从以 '{' 开头的字符串中找到匹配的 '}' 位置（支持嵌套与字符串）。
+fn find_matching_brace(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    if bytes.first() != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut quote = b' ';
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if in_str {
+            if c == b'\\' {
+                i += 2;
+                continue;
+            }
+            if c == quote {
+                in_str = false;
+            }
+        } else if c == b'\'' || c == b'"' {
+            in_str = true;
+            quote = c;
+        } else if c == b'{' {
+            depth += 1;
+        } else if c == b'}' {
+            depth -= 1;
+            if depth == 0 {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
 }

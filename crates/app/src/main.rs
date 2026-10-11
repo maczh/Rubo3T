@@ -36,23 +36,21 @@ impl eframe::App for AppState {
         ui::toolbar::render(ctx, self);
         ui::explorer::render(ctx, self);
 
-        // 日志面板（底部）
-        TopBottomPanel::bottom("logs").resizable(true).default_height(120.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
+        // 日志面板（底部，受状态栏 Logs 按钮控制显隐）
+        if self.show_logs {
+            TopBottomPanel::bottom("logs").resizable(true).default_height(120.0).show(ctx, |ui| {
                 ui.strong(self.lang.tr("logs.title"));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.checkbox(&mut self.show_logs, self.lang.tr("logs.toggle"));
-                });
-            });
-            if self.show_logs {
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for line in &self.logs {
                         ui.label(line);
                     }
                 });
-            }
-        });
+            });
+        }
+
+        // 底部状态栏（紧贴窗口底部，位于日志面板之下）
+        ui::workspace::render_status_bar(ctx, self);
 
         ui::workspace::render(ctx, self);
         ui::dialogs::render(ctx, self);
@@ -61,7 +59,9 @@ impl eframe::App for AppState {
 
 fn main() -> eframe::Result<()> {
     let icon = crate::icons::window_icon();
-    let mut viewport = ViewportBuilder::default().with_inner_size(Vec2::new(1280.0, 820.0));
+    let mut viewport = ViewportBuilder::default()
+        .with_title("Robo 3T - 1.4.4")
+        .with_inner_size(Vec2::new(1280.0, 820.0));
     if let Some(icon) = icon {
         viewport = viewport.with_icon(icon);
     }
@@ -70,7 +70,7 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native(
-        "Rubo3T",
+        "Robo 3T - 1.4.4",
         options,
         Box::new(|cc| Ok(Box::new(AppState::new(cc)))),
     )

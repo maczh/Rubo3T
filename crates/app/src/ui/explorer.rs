@@ -93,6 +93,22 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                                     if db_response.header_response.clicked() {
                                         expand_db = db.name.clone();
                                     }
+                                    // 数据库节点右键菜单：索引 / 用户（只读弹窗）
+                                    db_response.header_response.context_menu(|ui| {
+                                        if ui.button(lang.tr("dialog.indexes")).clicked() {
+                                            let coll = collections
+                                                .get(&db.name)
+                                                .and_then(|c| c.first())
+                                                .map(|c| c.name.clone())
+                                                .unwrap_or_default();
+                                            state.open_indexes_dialog(&db.name, &coll);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button(lang.tr("dialog.users")).clicked() {
+                                            state.open_users_dialog(&db.name);
+                                            ui.close_menu();
+                                        }
+                                    });
                                 }
                             });
                     });

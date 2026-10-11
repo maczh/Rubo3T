@@ -50,22 +50,6 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                 if ui.checkbox(&mut state.show_logs, lang.tr("logs.toggle")).clicked() {
                     ui.close_menu();
                 }
-                if ui.checkbox(&mut state.show_caps, lang.tr("menu.version_caps")).clicked() {
-                    ui.close_menu();
-                }
-            });
-
-            ui.menu_button("语言 / Language", |ui| {
-                if ui.button("中文").clicked() {
-                    state.lang = Lang::Zh;
-                    state.save_settings();
-                    ui.close_menu();
-                }
-                if ui.button("English").clicked() {
-                    state.lang = Lang::En;
-                    state.save_settings();
-                    ui.close_menu();
-                }
             });
 
             ui.menu_button(lang.tr("menu.options"), |ui| {
@@ -113,6 +97,20 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                 if ui.checkbox(&mut state.app_settings.line_numbers, lang.tr("menu.line_numbers")).clicked() { ui.close_menu(); }
                 if ui.checkbox(&mut state.app_settings.auto_exec, lang.tr("menu.auto_exec")).clicked() { ui.close_menu(); }
                 if ui.checkbox(&mut state.app_settings.disable_conn_shortcuts, lang.tr("menu.disable_conn_shortcuts")).clicked() { ui.close_menu(); }
+                // 语言 / Language 子菜单移入 Options 底部（Robo3T 顶级无此项）
+                ui.separator();
+                ui.menu_button(lang.tr("menu.lang"), |ui| {
+                    if ui.button("中文").clicked() {
+                        state.lang = Lang::Zh;
+                        state.save_settings();
+                        ui.close_menu();
+                    }
+                    if ui.button("English").clicked() {
+                        state.lang = Lang::En;
+                        state.save_settings();
+                        ui.close_menu();
+                    }
+                });
             });
 
             ui.menu_button(lang.tr("menu.window"), |ui| {
@@ -159,7 +157,7 @@ pub fn render(ctx: &Context, state: &mut AppState) {
         state.disconnect();
     }
     if act_about {
-        // About dialog handled separately
+        state.about_open = true;
     }
     if act_exit {
         std::process::exit(0);

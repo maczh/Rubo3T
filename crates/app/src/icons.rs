@@ -45,7 +45,80 @@ pub const ICONS: &[(&str, &'static [u8])] = &[
     ("bson_binary_16x16", include_bytes!("../resources/icons/bson_binary_16x16.png")),
     ("bson_decimal128_16x16", include_bytes!("../resources/icons/bson_decimal128_16x16.png")),
     ("bson_unsupported_16x16", include_bytes!("../resources/icons/bson_unsupported_16x16.png")),
+    // 新增：工作区标签关闭按钮 + 结果视图按钮（未选中态）+ 耗时图标
+    ("close_2_16x16", include_bytes!("../resources/icons/close_2_16x16.png")),
+    ("close_hover_16x16", include_bytes!("../resources/icons/close_hover_16x16.png")),
+    ("table_16x16", include_bytes!("../resources/icons/table_16x16.png")),
+    ("tree_16x16", include_bytes!("../resources/icons/tree_16x16.png")),
+    ("text_16x16", include_bytes!("../resources/icons/text_16x16.png")),
+    ("custom_16x16", include_bytes!("../resources/icons/custom_16x16.png")),
+    ("time_16x16", include_bytes!("../resources/icons/time_16x16.png")),
 ];
+
+/// 程序化绘制的额外图标名称（Open 文件夹 / Save 软盘，浅灰线条）。
+const PROGRAMMATIC_ICONS: &[(&str, IconKind)] = &[
+    ("open_16x16", IconKind::Folder),
+    ("save_16x16", IconKind::Floppy),
+];
+
+/// 程序化图标的种类。
+#[derive(Clone, Copy)]
+enum IconKind {
+    Folder,
+    Floppy,
+}
+
+/// 用逐像素回调生成一个 16×16 的 RGBA `ColorImage`。
+///
+/// 回调返回 `Some([r,g,b])` 表示该像素为不透明线条/填充色，返回 `None` 表示透明。
+fn build_icon<F: Fn(usize, usize) -> Option<[u8; 3]>>(size: usize, f: F) -> ColorImage {
+    let mut pixels: Vec<u8> = Vec::with_capacity(size * size * 4);
+    for y in 0..size {
+        for x in 0..size {
+            if let Some([r, g, b]) = f(x, y) {
+                pixels.extend_from_slice(&[r, g, b, 255]);
+            } else {
+                pixels.extend_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+    }
+    ColorImage::from_rgba_unmultiplied([size, size], &pixels)
+}
+
+/// 浅灰线条文件夹图标（近似 Qt 的 SP_DialogOpenButton）。
+fn folder_icon() -> ColorImage {
+    let line = [0x5f, 0x5f, 0x5f];
+    build_icon(16, |x, y| {
+        let on = (y == 2 || y == 3) && x >= 1 && x <= 6
+            || (y == 4 && x >= 1 && x <= 14)
+            || (y == 13 && x >= 1 && x <= 14)
+            || (x == 1 && y >= 4 && y <= 13)
+            || (x == 14 && y >= 4 && y <= 13);
+        if on {
+            Some(line)
+        } else {
+            None
+        }
+    })
+}
+
+/// 浅灰线条软盘图标（近似 Qt 的 SP_DialogSaveButton）。
+fn floppy_icon() -> ColorImage {
+    let line = [0x5f, 0x5f, 0x5f];
+    build_icon(16, |x, y| {
+        let outline = ((y == 1 || y == 14) && x >= 1 && x <= 14)
+            || ((x == 1 || x == 14) && y >= 1 && y <= 14);
+        let shutter = y >= 1 && y <= 5 && x >= 9 && x <= 13;
+        let label = y >= 9 && y <= 13 && x >= 3 && x <= 12;
+        let hole = y >= 2 && y <= 4 && x >= 10 && x <= 12;
+        let label_line = y >= 11 && y <= 12 && x >= 4 && x <= 11;
+        if (outline || shutter || label) && !hole && !label_line {
+            Some(line)
+        } else {
+            None
+        }
+    })
+}
 
 /// 标记：图标是否已全部注册（存于 egui 上下文，保证进程内只注册一次）。
 const REGISTERED_MARKER: &str = "robo3t_icons_registered";
@@ -82,6 +155,23 @@ pub fn register(ctx: &Context) {
             }
         }
     }
+    // 程序化图标（Open 文件夹 / Save 软盘）
+    for (name, kind) in PROGRAMMATIC_ICONS {
+        let per_icon = Id::new(("robo3t_icon", *name));
+        if ctx.data(|d| d.get_temp::<bool>(per_icon) == Some(true)) {
+            continue;
+        }
+        let color_image = match kind {
+            IconKind::Folder => folder_icon(),
+            IconKind::Floppy => floppy_icon(),
+        };
+        let _ = ctx.load_texture(
+            format!("icon://{}", name),
+            color_image,
+            TextureOptions::default(),
+        );
+        ctx.data_mut(|d| d.insert_temp(per_icon, true));
+    }
     ctx.data_mut(|d| d.insert_temp(marker, true));
 }
 
@@ -90,6 +180,13 @@ pub fn register(ctx: &Context) {
 /// 调用处一般配合 `.fit_to_original_size(1.0)` 控制尺寸（工具栏 24×24、树 16×16 自然呈现）。
 pub fn img(name: &str) -> Image<'static> {
     Image::new(format!("icon://{}", name))
+}
+
+/// 构造一个固定边长（正方形）的图标 [`Image`]，等比缩放后不超过 `size` 像素。
+///
+/// 用于状态栏/输出头/分页等需要精确像素尺寸的地方（如 16×16、24×24）。
+pub fn img_size(name: &str, size: f32) -> Image<'static> {
+    Image::new(format!("icon://{}", name)).max_size(egui::vec2(size, size))
 }
 
 /// 返回窗口图标（解码 `logo-256x256.png`）。

@@ -327,6 +327,63 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("about.line3", "驱动: 官方 mongodb-rust 3.8.x · 支持 MongoDB 3.x → 8.x");
 
     m.insert("options.title", "选项");
+
+    // ---- Robo3T 1:1 改造新增文案 ----
+    m.insert("toolbar.open", "打开");
+    m.insert("toolbar.save", "保存");
+    m.insert("tab.new_shell", "新建 Shell");
+    m.insert("tab.reexecute", "重新执行查询");
+    m.insert("tab.duplicate", "复制查询到新标签");
+    m.insert("tab.close_shell", "关闭 Shell");
+    m.insert("tab.close_others", "关闭其他 Shell");
+    m.insert("tab.close_right", "关闭右侧 Shell");
+    m.insert("paging.skip", "跳过");
+    m.insert("paging.batch", "批量大小（一次显示的文档数）");
+    m.insert("doc.edit_title", "编辑文档");
+    m.insert("doc.insert_title", "插入文档");
+    m.insert("indexes.caption", "索引");
+    m.insert("users.caption", "用户");
+    m.insert("view.custom.tip", "以自定义 UI 查看结果");
+    m.insert("view.tree.tip", "以树形模式查看结果");
+    m.insert("view.table.tip", "以表格模式查看结果");
+    m.insert("view.text.tip", "以文本模式查看结果");
+    m.insert("status.bar.tip", "连接状态");
+    m.insert("query.script_empty", "（空脚本）");
+    m.insert("output.time", "耗时");
+    m.insert("dialog.indexes", "索引...");
+    m.insert("dialog.users", "用户...");
+
+    // ---- 第二部分对话框（§11–§15）新增文案 ----
+    m.insert("dialog.conn_link_create", "新建");
+    m.insert("dialog.conn_link_edit", "编辑");
+    m.insert("dialog.conn_link_remove", "移除");
+    m.insert("dialog.conn_link_clone", "克隆");
+    m.insert("dialog.conn_link_tail", "或拖拽排序连接。");
+    m.insert("dialog.conn_clone_prefix", "复制的 ");
+    m.insert("dialog.confirm_remove_title", "删除连接");
+    m.insert("dialog.add", "添加");
+    m.insert("form.hint.name", "输入一个便于识别此连接的名称。");
+    m.insert("form.hint.address", "指定 MongoDB 服务器主机与端口，可为 IPv4、IPv6 或域名。");
+    m.insert("form.tls.ca_file", "CA 文件:");
+    m.insert("form.tls.cert_file", "PEM 证书:");
+    m.insert("form.tls.key_file", "PEM 密码:");
+    m.insert("form.ssh.use_tunnel", "使用 SSH 隧道");
+    m.insert("form.ssh.passphrase", "口令:");
+    m.insert("form.auth.perform", "执行认证");
+    m.insert("attr.replica", "副本集");
+    m.insert("attr.tls", "TLS");
+    m.insert("attr.ssh", "SSH");
+    m.insert("doc.validate", "校验");
+    m.insert("about.copyright", "Copyright © 2016-2024 Studio 3T / Robo 3T。UI 复刻 by Rubo3T。");
+    m.insert("test.title", "连接诊断");
+    m.insert("common.error", "错误");
+    m.insert("doc.validate_ok", "JSON 合法");
+    m.insert("common.browse", "浏览...");
+    m.insert("common.path", "路径:");
+    m.insert("form.address", "地址");
+    m.insert("form.ssh.address", "地址 (host:port):");
+    m.insert("form.tls.use", "使用 TLS/SSL 协议");
+    m.insert("form.tls.validate", "校验服务器证书");
     m
 });
 
@@ -604,5 +661,62 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("about.line3", "Driver: official mongodb-rust 3.8.x · supports MongoDB 3.x → 8.x");
 
     m.insert("options.title", "Options");
+
+    // ---- Robo3T 1:1 改造新增文案 ----
+    m.insert("toolbar.open", "Open");
+    m.insert("toolbar.save", "Save");
+    m.insert("tab.new_shell", "New Shell");
+    m.insert("tab.reexecute", "Re-execute Query");
+    m.insert("tab.duplicate", "Duplicate Query In New Tab");
+    m.insert("tab.close_shell", "Close Shell");
+    m.insert("tab.close_others", "Close Other Shells");
+    m.insert("tab.close_right", "Close Shells to the Right");
+    m.insert("paging.skip", "Skip");
+    m.insert("paging.batch", "Batch Size (number of documents shown at once)");
+    m.insert("doc.edit_title", "Edit Document");
+    m.insert("doc.insert_title", "Insert Document");
+    m.insert("indexes.caption", "Indexes");
+    m.insert("users.caption", "Users");
+    m.insert("view.custom.tip", "View results in custom UI");
+    m.insert("view.tree.tip", "View results in tree mode");
+    m.insert("view.table.tip", "View results in table mode");
+    m.insert("view.text.tip", "View results in text mode");
+    m.insert("status.bar.tip", "Connection status");
+    m.insert("query.script_empty", "(empty script)");
+    m.insert("output.time", "Elapsed");
+    m.insert("dialog.indexes", "Indexes...");
+    m.insert("dialog.users", "Users...");
+
+    // ---- 第二部分对话框（§11–§15）新增文案 ----
+    m.insert("dialog.conn_link_create", "Create");
+    m.insert("dialog.conn_link_edit", "edit");
+    m.insert("dialog.conn_link_remove", "remove");
+    m.insert("dialog.conn_link_clone", "clone");
+    m.insert("dialog.conn_link_tail", "or reorder connections via drag'n'drop.");
+    m.insert("dialog.conn_clone_prefix", "Copy of ");
+    m.insert("dialog.confirm_remove_title", "Delete Connection");
+    m.insert("dialog.add", "Add");
+    m.insert("form.hint.name", "Choose any connection name that will help you to identify this connection.");
+    m.insert("form.hint.address", "Specify host and port of MongoDB server. Host can be either IPv4, IPv6 or domain name.");
+    m.insert("form.tls.ca_file", "CA File:");
+    m.insert("form.tls.cert_file", "PEM Cert:");
+    m.insert("form.tls.key_file", "PEM Passphrase:");
+    m.insert("form.ssh.use_tunnel", "Use SSH tunnel");
+    m.insert("form.ssh.passphrase", "Passphrase:");
+    m.insert("form.auth.perform", "Perform authentication");
+    m.insert("attr.replica", "Replica Set");
+    m.insert("attr.tls", "TLS");
+    m.insert("attr.ssh", "SSH");
+    m.insert("doc.validate", "Validate");
+    m.insert("about.copyright", "Copyright © 2016-2024 Studio 3T / Robo 3T. UI clone by Rubo3T.");
+    m.insert("test.title", "Connection Diagnostic");
+    m.insert("common.error", "Error");
+    m.insert("doc.validate_ok", "JSON is valid");
+    m.insert("common.browse", "Browse...");
+    m.insert("common.path", "Path:");
+    m.insert("form.address", "Address");
+    m.insert("form.ssh.address", "Address (host:port):");
+    m.insert("form.tls.use", "Use TLS/SSL Protocol");
+    m.insert("form.tls.validate", "Validate Server Certificate");
     m
 });

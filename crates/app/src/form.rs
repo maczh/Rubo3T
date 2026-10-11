@@ -85,6 +85,20 @@ pub struct ConnectionForm {
     pub ssh_remote_port: u16,
     pub default_db: String,
     pub direct: bool,
+    /// 连接页：单节点主机（与 port_input 拼成 host:port）。
+    pub host_input: String,
+    /// 连接页：单节点端口。
+    pub port_input: String,
+    /// SSH 口令（Passphrase）。
+    pub ssh_passphrase: String,
+    /// TLS CA 证书文件路径。
+    pub ssl_ca_file: String,
+    /// TLS 客户端证书文件路径。
+    pub ssl_cert_file: String,
+    /// TLS 客户端私钥/口令文件路径。
+    pub ssl_key_file: String,
+    /// 设置弹窗当前激活的标签页索引（Connection/Auth/SSH/TLS/Advanced）。
+    pub tab_index: usize,
 }
 
 impl Default for ConnectionForm {
@@ -114,19 +128,37 @@ impl Default for ConnectionForm {
             ssh_remote_port: 27017,
             default_db: String::new(),
             direct: false,
+            host_input: "127.0.0.1".into(),
+            port_input: "27017".into(),
+            ssh_passphrase: String::new(),
+            ssl_ca_file: String::new(),
+            ssl_cert_file: String::new(),
+            ssl_key_file: String::new(),
+            tab_index: 0,
         }
     }
 }
 
 impl ConnectionForm {
     pub fn to_settings(&self) -> ConnectionSettings {
-        let hosts = self
-            .hosts_text
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .filter_map(Host::parse)
-            .collect::<Vec<_>>();
+        // 单节点用 host_input:port_input；副本集/分片用多行 hosts_text。
+        let hosts = match self.mode {
+            ConnectionMode::Standalone => {
+                let mut v = Vec::new();
+                let s = format!("{}:{}", self.host_input.trim(), self.port_input.trim());
+                if let Some(h) = Host::parse(&s) {
+                    v.push(h);
+                }
+                v
+            }
+            _ => self
+                .hosts_text
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .filter_map(Host::parse)
+                .collect::<Vec<_>>(),
+        };
         ConnectionSettings {
             name: self.name.clone(),
             mode: self.mode,
@@ -161,7 +193,11 @@ impl ConnectionForm {
                 } else {
                     Some(self.ssh_key.clone())
                 },
-                passphrase: None,
+                passphrase: if self.ssh_passphrase.is_empty() {
+                    None
+                } else {
+                    Some(self.ssh_passphrase.clone())
+                },
                 local_port: self.ssh_local_port,
                 remote_host: self.ssh_remote_host.clone(),
                 remote_port: self.ssh_remote_port,
@@ -169,9 +205,21 @@ impl ConnectionForm {
             ssl: SslSettings {
                 enabled: self.ssl_enabled,
                 allow_invalid_certs: self.ssl_allow_invalid,
-                ca_file: None,
-                cert_file: None,
-                key_file: None,
+                ca_file: if self.ssl_ca_file.is_empty() {
+                    None
+                } else {
+                    Some(self.ssl_ca_file.clone())
+                },
+                cert_file: if self.ssl_cert_file.is_empty() {
+                    None
+                } else {
+                    Some(self.ssl_cert_file.clone())
+                },
+                key_file: if self.ssl_key_file.is_empty() {
+                    None
+                } else {
+                    Some(self.ssl_key_file.clone())
+                },
             },
             default_database: if self.default_db.is_empty() {
                 None
@@ -208,11 +256,26 @@ impl ConnectionForm {
             ssh_auth: s.ssh.auth_method,
             ssh_password: s.ssh.password.clone(),
             ssh_key: s.ssh.private_key_path.clone().unwrap_or_default(),
+            ssh_passphrase: s.ssh.passphrase.clone().unwrap_or_default(),
             ssh_local_port: s.ssh.local_port,
             ssh_remote_host: s.ssh.remote_host.clone(),
             ssh_remote_port: s.ssh.remote_port,
             default_db: s.default_database.clone().unwrap_or_default(),
             direct: s.direct_connection,
+            host_input: s
+                .hosts
+                .first()
+                .map(|h| h.host.clone())
+                .unwrap_or_else(|| "127.0.0.1".into()),
+            port_input: s
+                .hosts
+                .first()
+                .map(|h| h.port.to_string())
+                .unwrap_or_else(|| "27017".into()),
+            ssl_ca_file: s.ssl.ca_file.clone().unwrap_or_default(),
+            ssl_cert_file: s.ssl.cert_file.clone().unwrap_or_default(),
+            ssl_key_file: s.ssl.key_file.clone().unwrap_or_default(),
+            tab_index: 0,
         }
     }
 }
