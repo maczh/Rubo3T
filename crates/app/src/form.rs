@@ -145,10 +145,10 @@ impl Default for ConnectionForm {
             ssh_host: "bastion.example.com".into(),
             ssh_port: 22,
             ssh_user: "ec2-user".into(),
-            ssh_auth: SshAuthMethod::PublicKey,
+            ssh_auth: SshAuthMethod::Password,
             ssh_password: String::new(),
             ssh_key: String::new(),
-            ssh_local_port: 27018,
+            ssh_local_port: 0, // 0 = 随机端口
             ssh_remote_host: "docdb.cluster.amazonaws.com".into(),
             ssh_remote_port: 27017,
             default_db: String::new(),

@@ -1,6 +1,6 @@
 //! 中央结果视图：Table / Tree / Text / Custom。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use eframe::egui;
@@ -190,7 +190,7 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
         return None;
     }
 
-    // 列宽：clamp(60,250)，以表头 + 首行测量（简化一次）
+    // 列宽默认以表头 + 首行测量；用户调整值按查询标签页和列名暂存。
     let mut col_w: Vec<f32> = cols.iter().map(|_| 80.0).collect();
     for (i, c) in cols.iter().enumerate() {
         col_w[i] = col_w[i].max(measure(ui, c) + 16.0);
@@ -201,14 +201,59 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
             col_w[i] = col_w[i].max(measure(ui, &cell_text(v)) + 16.0);
         }
     }
+    let tab_id = state
+        .tabs
+        .get(state.active_tab)
+        .map(|tab| tab.id)
+        .unwrap_or_default();
+    let widths_id = Id::new(("result_table_column_widths", tab_id));
+    let mut saved_widths = ui
+        .ctx()
+        .data(|data| data.get_temp::<HashMap<String, f32>>(widths_id))
+        .unwrap_or_default();
     for w in col_w.iter_mut() {
         *w = w.clamp(60.0, 250.0);
+    }
+    for (i, c) in cols.iter().enumerate() {
+        if let Some(width) = saved_widths.get(c) {
+            col_w[i] = width.clamp(60.0, 250.0);
+        }
     }
     let row_num_w = 40.0;
     let avail = ui.available_width();
 
     // 表头
     let (hrect, _) = ui.allocate_exact_size(Vec2::new(avail, header_h), Sense::hover());
+    let mut resize_deltas = Vec::new();
+    let mut edge_x = hrect.left() + row_num_w;
+    for (i, width) in col_w.iter().enumerate() {
+        edge_x += *width;
+        let resize_rect = Rect::from_min_max(
+            Pos2::new(edge_x - 4.0, hrect.top()),
+            Pos2::new(edge_x + 4.0, hrect.bottom()),
+        );
+        let response = ui.interact(
+            resize_rect,
+            Id::new(("result_table_column_resize", tab_id, &cols[i])),
+            Sense::drag(),
+        );
+        if response.hovered() || response.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        }
+        if response.dragged() {
+            let delta = ui.input(|input| input.pointer.delta().x);
+            if delta != 0.0 {
+                resize_deltas.push((i, delta));
+            }
+        }
+    }
+    for (i, delta) in resize_deltas {
+        col_w[i] = (col_w[i] + delta).clamp(60.0, 250.0);
+        saved_widths.insert(cols[i].clone(), col_w[i]);
+    }
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(widths_id, saved_widths));
+
     let hpainter = ui.painter();
     let style = ui.style();
     let mut x = hrect.left();

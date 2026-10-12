@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use chrono::Timelike;
 use rubo3t_core::bson::{doc, Bson};
@@ -12,7 +13,7 @@ use rubo3t_core::domain::{CollectionInfo, DatabaseInfo, IndexInfo, ServerInfo, U
 use rubo3t_core::settings::ConnectionSettings;
 use rubo3t_core::Document;
 use rubo3t_mongo::MongoService;
-use rubo3t_ssh::Tunnel;
+use rubo3t_ssh::{SshLogger, Tunnel};
 
 use crate::form::ConnectionForm;
 use crate::i18n::{trf, Lang};
@@ -325,6 +326,8 @@ pub struct AppState {
     // 日志
     pub logs: Vec<String>,
     pub show_logs: bool,
+    /// SSH 隧道调试日志的共享缓冲（由隧道回调写入，每帧抽到 logs 中展示）。
+    pub ssh_log_sink: Arc<Mutex<Vec<String>>>,
 
     // Toast
     pub toast_msg: Option<(String, bool)>,
@@ -496,6 +499,7 @@ impl AppState {
             shell_db: "admin".to_string(),
             logs: Vec::new(),
             show_logs: true,
+            ssh_log_sink: Arc::new(Mutex::new(Vec::new())),
             toast_msg: None,
             options_menu_open: false,
             icon_registered: false,
@@ -560,18 +564,53 @@ impl AppState {
         self.log(script);
     }
 
+    /// 构造一个 SSH 隧道调试日志回调：隧道把每行日志写入共享缓冲 `ssh_log_sink`，
+    /// 再由 `drain_ssh_logs` 每帧抽到 logs 展示。
+    fn ssh_logger(&self) -> Option<SshLogger> {
+        let sink = self.ssh_log_sink.clone();
+        Some(Arc::new(move |msg: &str| {
+            if let Ok(mut v) = sink.lock() {
+                v.push(msg.to_string());
+            }
+        }))
+    }
+
+    /// 把 SSH 隧道共享缓冲里的调试日志抽到主日志框（每帧调用一次即可）。
+    pub(crate) fn drain_ssh_logs(&mut self) {
+        let mut drained: Vec<String> = Vec::new();
+        if let Ok(mut v) = self.ssh_log_sink.lock() {
+            if !v.is_empty() {
+                std::mem::swap(&mut drained, &mut *v);
+            }
+        }
+        // 先释放锁，再写日志（self.log 需要可变借用 self）。
+        for m in drained {
+            self.log(format!("[SSH] {m}"));
+        }
+    }
+
     // ----- 连接管理 -----
 
-    pub fn connect(&mut self, settings: ConnectionSettings) {
+    pub fn connect(&mut self, mut settings: ConnectionSettings) {
         self.tunnel = None;
         if settings.ssh.enabled {
-            match Tunnel::start(&settings.ssh) {
+            // 隧道转发目标 = MongoDB 真实服务器地址（从跳板机可达），即连接设置中的 hosts[0]。
+            // 本地 127.0.0.1:local_port 仅作入口，由 build_uri 改写为转发端口。
+            let (fw_host, fw_port) = match settings.hosts.first() {
+                Some(h) => (h.host.clone(), if h.port == 0 { 27017 } else { h.port }),
+                None => (settings.ssh.remote_host.clone(), settings.ssh.remote_port),
+            };
+            match Tunnel::start_with_logger(&settings.ssh, fw_host, fw_port, self.ssh_logger()) {
                 Ok(t) => self.tunnel = Some(t),
                 Err(e) => {
+                    self.drain_ssh_logs();
                     self.toast(&trf(self.lang, "msg.ssh_failed", &[&e.to_string()]), true);
                     return;
                 }
             }
+        }
+        if let Some(t) = &self.tunnel {
+            settings.ssh.local_port = t.local_port();
         }
         match self.rt.block_on(MongoService::connect(&settings)) {
             Ok(svc) => {
@@ -611,7 +650,32 @@ impl AppState {
 
     /// 测试连接（§12 Connection Settings 的 Test 按钮）：建立临时 service 校验连通性，
     /// 不影响当前已激活连接；结果写入 test_result 并由测试弹窗展示。
-    pub fn test_connection(&mut self, settings: ConnectionSettings) {
+    pub fn test_connection(&mut self, mut settings: ConnectionSettings) {
+        // 测试同样需要先建立 SSH 隧道（若启用），否则 URI 指向的本地转发端口无人监听。
+        // 隧道为函数内临时变量（下划线前缀避免未使用告警），结束时随 Drop 自动停止。
+        let _test_tunnel = if settings.ssh.enabled {
+            // 同 connect：转发目标取 MongoDB 真实服务器地址 hosts[0]。
+            let (fw_host, fw_port) = match settings.hosts.first() {
+                Some(h) => (h.host.clone(), if h.port == 0 { 27017 } else { h.port }),
+                None => (settings.ssh.remote_host.clone(), settings.ssh.remote_port),
+            };
+            match Tunnel::start_with_logger(&settings.ssh, fw_host, fw_port, self.ssh_logger()) {
+                Ok(t) => {
+                    settings.ssh.local_port = t.local_port();
+                    Some(t)
+                }
+                Err(e) => {
+                    self.drain_ssh_logs();
+                    let msg = trf(self.lang, "msg.ssh_failed", &[&e.to_string()]);
+                    self.test_result = msg.clone();
+                    self.toast(&msg, true);
+                    self.test_open = true;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         match self.rt.block_on(MongoService::connect(&settings)) {
             Ok(svc) => {
                 let version = svc
@@ -629,6 +693,8 @@ impl AppState {
                 self.toast(&msg, true);
             }
         }
+        self.drain_ssh_logs();
+        // test_tunnel Drop 在此触发，自动关闭临时隧道。
         self.test_open = true;
     }
 

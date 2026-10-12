@@ -22,6 +22,9 @@ use crate::app::AppState;
 
 impl eframe::App for AppState {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        // 把 SSH 隧道调试日志抽到主日志框（隧道在后台线程/运行时并发写入共享缓冲）。
+        self.drain_ssh_logs();
+
         // 同步当前 tab 的状态到 app state 渲染字段
         if !self.tabs.is_empty() {
             self.sync_to_active_tab();

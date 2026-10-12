@@ -198,7 +198,7 @@ impl Default for SshSettings {
             private_key_path: None,
             passphrase: None,
             ask_password_each_time: false,
-            local_port: 27018,
+            local_port: 0, // 0 = 由系统随机分配空闲端口
             remote_host: "docdb-cluster.cluster-xxxx.docdb.amazonaws.com".to_string(),
             remote_port: 27017,
         }
