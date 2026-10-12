@@ -5,11 +5,10 @@
 //! 在文本区内跳转。当前命中以「白底红字」高亮，其余命中弱高亮；跳转时把当前
 //! 命中滚动到可视区域（零宽光标 + 手动滚动，不抢焦点，Enter 不会误编辑文档）。
 use eframe::egui;
-use egui::epaint::text::cursor::Cursor;
-use egui::text::{CCursor, CursorRange};
+use egui::text::{CCursor, CCursorRange};
 use egui::text_selection::text_cursor_state::cursor_rect;
 use egui::widgets::text_edit::{TextEditOutput, TextEditState};
-use egui::{Align2, Context, FontId, Id, Key, Modifiers, Response, TextEdit, Ui};
+use egui::{Align, Align2, Context, FontId, Id, Key, Modifiers, Response, TextEdit, Ui};
 
 use crate::app::{AppState, FindTarget};
 
@@ -69,32 +68,56 @@ pub fn highlight_ranges(state: &AppState, target: FindTarget) -> (Vec<(usize, us
 /// 采用「零宽光标 + 手动滚动」而非「选区 + 抢焦点」：
 /// - 零宽光标不会绘制选区底色，避免覆盖查找高亮（白底红字）；
 /// - 不抢焦点，查找输入框可持续聚焦，Enter 始终用于“下一个”，不会误编辑文档。
+///
+/// 光标写入用 `set_char_range`（字符区间）而非 `set_range`（pcursor 区间）：
+/// `TextCursorState::range` 会**优先按 pcursor 解析**，而此处拿不到 galley、无法填 pcursor，
+/// 若用 `set_range` 光标会恒被解析到字符 0（文本顶端），永远滚不到命中处。
+/// 另 `start` 是字节偏移，而 `CCursor` 以字符计数，含多字节字符（如中文）时必须换算。
 fn goto(ctx: &Context, state: &mut AppState, target: FindTarget, start: usize) {
     let id = edit_id(target);
-    let cursor = Cursor {
-        ccursor: CCursor {
-            index: start,
-            prefer_next_row: false,
-        },
-        ..Default::default()
+    let char_index = buffer_text(state, target)
+        .get(..start)
+        .map(|s| s.chars().count())
+        .unwrap_or(0);
+    let cc = CCursor {
+        index: char_index,
+        prefer_next_row: false,
     };
     let mut st = TextEditState::load(ctx, id).unwrap_or_default();
-    st.cursor.set_range(Some(CursorRange::one(cursor)));
+    st.cursor.set_char_range(Some(CCursorRange {
+        primary: cc,
+        secondary: cc,
+    }));
     st.store(ctx, id);
     state.find.pending_scroll = Some(target);
 }
 
-/// 文本区渲染后调用：若上一帧对该目标请求了滚动，则把当前命中位置滚动到可见区域。
+/// 文本区渲染后调用：若上一帧对该目标请求了滚动，则把当前命中位置滚动到编辑框可视区域
+/// 的**上下居中**位置；若文本内容不足一屏，则不滚动。
 ///
-/// 复用 TextEdit 已同步好的 `output.cursor_range`（零宽光标即命中起点），不依赖焦点。
+/// 复用 `goto` 写入 `TextEditState` 的零宽光标（`output.state.cursor`，即命中起点），
+/// 不依赖焦点，也不依赖 `output.cursor_range`（后者仅在 TextEdit 聚焦时才非 None）。
+/// 注意：本函数依赖各文本区被 `ScrollArea` 包裹（见 `workspace.rs` / `result_view.rs` /
+/// `dialogs.rs`），否则 `scroll_to_rect` 没有可滚动的父容器，便不会发生滚动。
 pub fn after_show_scroll(ui: &Ui, state: &mut AppState, target: FindTarget, output: &TextEditOutput) {
     if state.find.pending_scroll != Some(target) {
         return;
     }
     state.find.pending_scroll = None;
-    let Some(cr) = output.cursor_range else {
+    // 注意：不能用 `output.cursor_range` —— egui 仅在 `TextEdit` **获得焦点**时才会填充它
+    // （builder.rs: `if interactive && mem.has_focus(id)`），而本功能刻意不抢焦点，它恒为 None，
+    // 会导致滚动静默失效。改从 `output.state.cursor` 取光标：这是 `goto` 写入的状态光标，与焦点无关。
+    let Some(cr) = output.state.cursor.range(&output.galley) else {
         return;
     };
+
+    // 文本内容不足一屏则无需滚动（占位目标矩形用不到，提前返回）。
+    let viewport = ui.clip_rect();
+    let content_height = output.galley.rect.height();
+    if content_height <= viewport.height() {
+        return;
+    }
+
     let font_id = ui
         .style()
         .text_styles
@@ -103,7 +126,15 @@ pub fn after_show_scroll(ui: &Ui, state: &mut AppState, target: FindTarget, outp
         .unwrap_or_else(|| FontId::monospace(12.0));
     let row_height = ui.fonts(|f| f.row_height(&font_id));
     let rect = cursor_rect(output.galley_pos, &output.galley, &cr.primary, row_height);
-    ui.scroll_to_rect(rect, None);
+
+    // 构造一个横向铺满视口、纵向以命中光标为中心的矩形：
+    // - 横向与视口同宽且中心对齐，使横向居中成为空操作（不引起文本水平偏移）；
+    // - 纵向中心落在命中行，配合 `Align::Center` 即把命中行滚动到编辑框上下居中。
+    let target_rect = egui::Rect::from_center_size(
+        egui::pos2(viewport.center().x, rect.center().y),
+        egui::vec2(viewport.width(), rect.height().max(row_height)),
+    );
+    ui.scroll_to_rect(target_rect, Some(Align::Center));
 }
 
 /// 重新计算命中区间（基于当前 query 与 active 目标）。

@@ -7,8 +7,8 @@
 
 use eframe::egui;
 use egui::{
-    Align, Button, CentralPanel, Color32, Context, Frame, Id, ImageButton, Layout, Margin, Pos2,
-    Rect, Rounding, ScrollArea, Sense, Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
+    Align, Button, CentralPanel, Color32, Context, FontId, Frame, Id, ImageButton, Layout, Margin,
+    Pos2, Rect, Rounding, ScrollArea, Sense, Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 
 use crate::app::{AppState, FindTarget, QueryMode, QueryTab, ViewMode};
@@ -490,9 +490,25 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
         if is_agg {
             edit = edit.hint_text(state.lang.tr("agg.pipeline"));
         }
-        let output = edit.show(ui);
-        find::after_show_scroll(ui, state, target, &output);
-        if output.response.has_focus()
+        // 用 ScrollArea 包裹，使长文本可滚动：
+        // 查找“下一个 / 上一个”时 `find::after_show_scroll` 才能把命中行滚动到可视区域居中。
+        let font_id = ui
+            .style()
+            .text_styles
+            .get(&egui::TextStyle::Monospace)
+            .cloned()
+            .unwrap_or_else(|| FontId::monospace(13.0));
+        let row_height = ui.fonts(|f| f.row_height(&font_id));
+        let max_h = (rows as f32) * row_height + 8.0;
+        let edit_response = ScrollArea::vertical()
+            .max_height(max_h)
+            .show(ui, |ui| {
+                let output = edit.show(ui);
+                find::after_show_scroll(ui, state, target, &output);
+                output.response
+            })
+            .inner;
+        if edit_response.has_focus()
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Enter))
         {
             ui.input_mut(|input| {
@@ -503,7 +519,7 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
         }
         // Ctrl/Cmd+F 打开文本查找弹窗
         let ctx = ui.ctx().clone();
-        find::handle_hotkey(&ctx, state, target, &output.response);
+        find::handle_hotkey(&ctx, state, target, &edit_response);
     });
     if is_agg {
         state.agg_text = buf;
