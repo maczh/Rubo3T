@@ -41,7 +41,7 @@ icon = [
     "resources/icons/logo.ico",
     "resources/icons/logo.icns",
 ]
-version = "0.1.0"
+version = "0.1.2"
 copyright = "Copyright (c) 2026 maczh"
 category = "Developer Tool"
 short_description = "用 Rust 重写的 MongoDB 管理工具（兼容 Robo3T 使用习惯）"
@@ -60,7 +60,7 @@ resources = []
 [package.metadata.packager]
 product_name = "Rubo3T"
 identifier = "com.maczh.rubo3t"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["maczh"]
 description = "用 Rust 重写的 MongoDB 管理工具，兼容 Robo3T 使用习惯"
 homepage = "https://github.com/maczh/Rubo3T"
@@ -76,6 +76,8 @@ out_dir = "../../target/release/bundle"
 # cargo-generate-rpm 配置（生成 .rpm；cargo-packager 自身不支持 rpm）
 # ---------------------------------------------------------------------------
 [package.metadata.generate-rpm]
+summary = "用 Rust 重写的 MongoDB 管理工具（兼容 Robo3T 使用习惯）"
+description = """Rubo3T 是 Robo3T 的 Rust 重写版本，基于 egui + 官方 mongodb Rust 驱动，支持 MongoDB 3.x 到 8.x、副本集、分片集群、Atlas SRV、各版本认证协议与 SSH 隧道。"""
 assets = [
     { source = "target/release/rubo3t", dest = "/usr/bin/rubo3t", mode = "0755" },
     { source = "resources/icons/logo-256x256.png", dest = "/usr/share/pixmaps/rubo3t.png", mode = "0644" },

@@ -3895,7 +3895,7 @@ dependencies = [
 
 [[package]]
 name = "rubo3t"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -3915,7 +3915,7 @@ dependencies = [
 
 [[package]]
 name = "rubo3t-core"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "bson",
@@ -3927,7 +3927,7 @@ dependencies = [
 
 [[package]]
 name = "rubo3t-mongo"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "bson",
  "futures-util",
@@ -3940,7 +3940,7 @@ dependencies = [
 
 [[package]]
 name = "rubo3t-ssh"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "rubo3t-core",

@@ -131,9 +131,18 @@ def _split_comma(items: list[str] | None) -> list[str] | None:
     return out
 
 
+def app_version() -> str:
+    """从 workspace 根 Cargo.toml 的 [workspace.package] 读取版本号（单一数据源）。"""
+    import tomllib
+
+    with open(ROOT / "Cargo.toml", "rb") as f:
+        data = tomllib.load(f)
+    return data["workspace"]["package"]["version"]
+
+
 def _dmg_filename() -> str:
     arch = platform.machine().lower().replace("amd64", "x64")
-    return f"Rubo3T_0.1.0_{arch}.dmg"
+    return f"Rubo3T_{app_version()}_{arch}.dmg"
 
 
 def create_macos_dmg() -> None:
@@ -208,7 +217,12 @@ def package_release(formats: list[str] | None) -> None:
         print("==> 步骤 rpm: 生成 .rpm（cargo-generate-rpm）")
         ensure_cargo_generate_rpm()
         # cargo-generate-rpm 默认把 .rpm 放在 target/release/generate-rpm/
-        run(["cargo", "generate-rpm", "-p", "rubo3t", "--target", "x86_64-unknown-linux-gnu"])
+        # 注意：该工具的 `-p` 参数是「包目录路径」而非包名（内部做 Path::new(p).join("Cargo.toml")），
+        # 本仓库 rubo3t 包位于 crates/app，故必须传 `crates/app`。
+        # 另：不可传 `--target <triple>`——它会把资产路径解析成 target/<triple>/release/，
+        # 与 Makefile `cargo build --release`（主机构建，产物在 target/release/）不一致；
+        # 用 `--arch x86_64` 仅指定 rpm 架构标签，不影响二进制资产定位。
+        run(["cargo", "generate-rpm", "-p", "crates/app", "--arch", "x86_64"])
 
 
 def list_artifacts() -> list[Path]:
@@ -216,10 +230,14 @@ def list_artifacts() -> list[Path]:
     # cargo-packager 产物
     if BUNDLE_DIR.exists():
         found.extend(p for p in BUNDLE_DIR.rglob("*") if p.is_file())
-    # cargo-generate-rpm 产物（.rpm 不进 bundle 目录）
-    rpm_dir = ROOT / "target" / "release" / "generate-rpm"
-    if rpm_dir.exists():
-        found.extend(p for p in rpm_dir.rglob("*.rpm") if p.is_file())
+    # cargo-generate-rpm 产物（.rpm 不进 bundle 目录）。
+    # 实际输出目录为 target/generate-rpm/（未指定 --target；若指定 --target 则为
+    # target/<triple>/generate-rpm/，见 generate-rpm 的 determine_output_dir），
+    # 并非 target/release/generate-rpm/。
+    rpm_dirs = [ROOT / "target" / "generate-rpm", *ROOT.glob("target/*/generate-rpm")]
+    for rpm_dir in rpm_dirs:
+        if rpm_dir.is_dir():
+            found.extend(p for p in rpm_dir.rglob("*.rpm") if p.is_file())
     return sorted(found)
 
 
