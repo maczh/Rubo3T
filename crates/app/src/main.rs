@@ -64,6 +64,8 @@ impl eframe::App for AppState {
 
         ui::workspace::render(ctx, self);
         ui::dialogs::render(ctx, self);
+        // 文本查找弹窗（Ctrl/Cmd+F 触发），置于最上层渲染
+        ui::find::render(ctx, self);
     }
 }
 

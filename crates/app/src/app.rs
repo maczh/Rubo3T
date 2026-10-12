@@ -187,6 +187,62 @@ pub enum ConnDlgMode {
 }
 
 /// 应用全局状态。
+/// 文本查找（Ctrl/Cmd+F）可作用的目标文本区。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FindTarget {
+    /// 查询脚本编辑器（Find 模式）。
+    Script,
+    /// 聚合管道编辑器（Aggregate 模式）。
+    Agg,
+    /// 文档编辑 / 插入弹窗。
+    EditDoc,
+    /// 文档查看弹窗（只读）。
+    ViewDoc,
+    /// 结果文本 / JSON 视图（只读）。
+    ResultText,
+}
+
+/// 文本查找弹窗状态。
+#[derive(Clone)]
+pub struct FindState {
+    /// 弹窗是否打开。
+    pub open: bool,
+    /// 当前查找作用在哪一个文本区。
+    pub active: FindTarget,
+    /// 查找关键字（区分大小写）。
+    pub query: String,
+    /// 命中区间（字节偏移起点, 终点），相对 `active` 对应缓冲文本。
+    pub matches: Vec<(usize, usize)>,
+    /// 当前高亮命中索引。
+    pub current: usize,
+    /// 上次 recompute 时缓存的 query / active，用于判断是否需要重算。
+    pub cached_query: String,
+    pub cached_active: FindTarget,
+    /// 强制在下一帧重算命中（打开弹窗或切换目标时置位）。
+    pub recompute_now: bool,
+    /// 弹窗刚打开的一帧，用于自动聚焦输入框。
+    pub just_opened: bool,
+    /// 下一帧需要把对应文本区滚动到当前命中位置（不抢焦点，交由该文本区渲染后处理）。
+    pub pending_scroll: Option<FindTarget>,
+}
+
+impl Default for FindState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            active: FindTarget::Script,
+            query: String::new(),
+            matches: Vec::new(),
+            current: 0,
+            cached_query: String::new(),
+            cached_active: FindTarget::Script,
+            recompute_now: false,
+            just_opened: false,
+            pending_scroll: None,
+        }
+    }
+}
+
 pub struct AppState {
     pub rt: tokio::runtime::Runtime,
     pub connections_path: PathBuf,
@@ -337,6 +393,9 @@ pub struct AppState {
 
     // 图标是否已在 egui 上下文注册（每帧 update 开头注册一次）
     pub icon_registered: bool,
+
+    // 文本查找（Ctrl/Cmd+F）弹窗状态
+    pub find: FindState,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
@@ -503,6 +562,7 @@ impl AppState {
             toast_msg: None,
             options_menu_open: false,
             icon_registered: false,
+            find: FindState::default(),
         };
         state.log("Rubo3T 已启动");
         state

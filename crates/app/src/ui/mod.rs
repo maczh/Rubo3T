@@ -5,6 +5,7 @@
 
 pub mod dialogs;
 pub mod explorer;
+pub mod find;
 pub mod menu;
 pub mod result_view;
 pub mod syntax;

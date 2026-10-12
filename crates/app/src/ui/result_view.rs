@@ -11,8 +11,9 @@ use egui::{
 
 use rubo3t_core::Document;
 
-use crate::app::{AppState, ViewMode};
+use crate::app::{AppState, FindTarget, ViewMode};
 use crate::icons;
+use crate::ui::find;
 use crate::ui::syntax;
 use rubo3t_core::bson::Bson;
 
@@ -36,15 +37,11 @@ fn cell_text(value: &Bson) -> String {
         Bson::Double(f) => format!("{:.6}", f),
         Bson::String(s) => s.clone(),
         Bson::ObjectId(oid) => oid.to_hex(),
-        Bson::DateTime(dt) => {
-            let secs = dt.timestamp_millis() / 1000;
-            let ms = dt.timestamp_millis() % 1000;
-            format!("ISODate({}.{:03}Z)", secs, ms)
-        }
+        Bson::DateTime(dt) => local_datetime_str(dt.timestamp_millis()),
         Bson::Array(a) => format!("[{} elements]", a.len()),
         Bson::Document(d) => format!("{{{} fields}}", d.len()),
         Bson::Binary(b) => format!("Binary({:?})", b.subtype),
-        Bson::Timestamp(ts) => format!("{}/ {}", ts.time, ts.increment),
+        Bson::Timestamp(ts) => local_datetime_str((ts.time as i64) * 1000),
         Bson::Decimal128(d) => d.to_string(),
         Bson::RegularExpression(r) => format!("/ {}/ {}", r.pattern, r.options),
         Bson::DbPointer(_) => "DBPointer".to_string(),
@@ -83,6 +80,14 @@ fn type_name(value: &Bson) -> &'static str {
     }
 }
 
+/// 把 UTC 毫秒（bson::DateTime / BSON Timestamp 内部存储）格式化为**本地时区**
+/// `YYYY-MM-DD HH:mm:ss.sss` 字符串。毫秒不足补零，时区按运行环境本地时区解释。
+///
+/// 与 `bson_ext::document_to_text` 中日期展示共用同一格式（单一事实来源）。
+fn local_datetime_str(utc_millis: i64) -> String {
+    rubo3t_core::bson_ext::millis_to_local_str(utc_millis)
+}
+
 /// 树视图 Value 列文本（Robo3T `BsonUtils::buildJsonString` 规则：字符串不带引号、
 /// ObjectId 显示为 `ObjectId("...")`、整型 double 补 `.0`、日期显示为 ISODate(...) 等）。
 fn value_text(value: &Bson) -> String {
@@ -95,13 +100,9 @@ fn value_text(value: &Bson) -> String {
         Bson::Decimal128(d) => d.to_string(),
         Bson::String(s) => s.clone(),
         Bson::ObjectId(oid) => format!("ObjectId(\"{}\")", oid.to_hex()),
-        Bson::DateTime(dt) => {
-            let secs = dt.timestamp_millis() / 1000;
-            let ms = dt.timestamp_millis() % 1000;
-            format!("ISODate({}.{:03}Z)", secs, ms)
-        }
+        Bson::DateTime(dt) => local_datetime_str(dt.timestamp_millis()),
         Bson::Binary(_) => "<binary>".to_string(),
-        Bson::Timestamp(ts) => format!("Timestamp({}, {})", ts.time, ts.increment),
+        Bson::Timestamp(ts) => local_datetime_str((ts.time as i64) * 1000),
         Bson::RegularExpression(r) => format!("/{}/{}", r.pattern, r.options),
         Bson::Symbol(s) => s.clone(),
         Bson::Undefined => "undefined".to_string(),
@@ -662,23 +663,27 @@ pub fn text_view(ui: &mut Ui, state: &mut AppState) {
             // TextEdit 自身内底色与深色 frame 保持一致
             ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
             // 文本视图默认字体色 A1FCA2（#A1FCA2）；字符串高亮用 #1F9D5E
+            let (fm_ranges, fm_current) = find::highlight_ranges(state, FindTarget::ResultText);
             let mut layouter = |ui: &Ui, t: &str, w: f32| {
-                syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+                syntax::highlight_with_find(ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current)
             };
             ScrollArea::vertical().show(ui, |ui| {
-                ui.add(
-                    TextEdit::multiline(&mut text)
-                        .code_editor()
-                        .text_color(TEXT_COLOR)
-                        .desired_width((avail - 12.0).max(100.0))
-                        .layouter(&mut layouter),
-                );
+                let edit = TextEdit::multiline(&mut text)
+                    .code_editor()
+                    .text_color(TEXT_COLOR)
+                    .desired_width((avail - 12.0).max(100.0))
+                    .layouter(&mut layouter)
+                    .id(Id::new(find::EDIT_ID_RESULT));
+                let output = edit.show(ui);
+                find::after_show_scroll(ui, state, FindTarget::ResultText, &output);
+                let ctx = ui.ctx().clone();
+                find::handle_hotkey(&ctx, state, FindTarget::ResultText, &output.response);
             });
         });
 }
 
 /// 把全部查询结果文档拼为多行 JSON 文本（文档间以逗号分隔，含尾换行）。
-fn all_docs_text(docs: &[Document]) -> String {
+pub fn all_docs_text(docs: &[Document]) -> String {
     let mut out = String::new();
     for d in docs {
         let t = rubo3t_core::bson_ext::document_to_text(d).unwrap_or_else(|_| "{}".to_string());

@@ -7,14 +7,15 @@
 
 use eframe::egui;
 use egui::{
-    Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Frame, Layout, Margin,
+    Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Frame, Id, Layout, Margin,
     Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui, UiBuilder, Vec2, Window,
 };
 
-use crate::app::{AppState, ConnDlgMode, ExplorerAction};
+use crate::app::{AppState, ConnDlgMode, ExplorerAction, FindTarget};
 use crate::form::{ConnectionForm, MechChoice};
 use crate::i18n::{trf, Lang};
 use crate::icons;
+use crate::ui::find;
 use crate::ui::syntax;
 use rubo3t_core::bson_ext;
 use rubo3t_core::Document;
@@ -1047,7 +1048,7 @@ fn render_advanced_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Opt
 /// 深色多行编辑器：配色与 `result_view::text_view` 完全一致（#494C4E 背景、
 /// 普通文字 A1FCA2、字符串高亮 #1F9D5E），ScrollArea 自适应宽度。
 /// 编辑光标为 #00C000 并以约 2Hz 频率闪烁（聚焦时持续重绘驱动）。
-fn dark_editor(ui: &mut Ui, text: &mut String) {
+fn dark_editor(ui: &mut Ui, state: &mut AppState) {
     let avail = ui.available_width();
     let ctx = ui.ctx().clone();
     // 每 0.5s 在 #00C000 与透明之间切换，形成闪烁
@@ -1067,17 +1068,23 @@ fn dark_editor(ui: &mut Ui, text: &mut String) {
             // 编辑光标设为 #00C000（闪烁由下方 request_repaint 驱动）
             ui.style_mut().visuals.text_cursor.stroke = Stroke::new(2.0_f32, cursor_color);
             // 普通文字 A1FCA2，字符串高亮 #1F9D5E（与 text_view 相同）
+            let (fm_ranges, fm_current) = find::highlight_ranges(state, FindTarget::EditDoc);
             let mut layouter = |ui: &Ui, t: &str, w: f32| {
-                syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+                syntax::highlight_with_find(ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current)
             };
             let resp = ScrollArea::vertical().show(ui, |ui| {
-                ui.add(
-                    TextEdit::multiline(text)
-                        .code_editor()
-                        .text_color(TEXT_COLOR)
-                        .desired_width((avail - 12.0).max(100.0))
-                        .layouter(&mut layouter),
-                )
+                let edit = TextEdit::multiline(&mut state.selected_doc_text)
+                    .code_editor()
+                    .text_color(TEXT_COLOR)
+                    .desired_width((avail - 12.0).max(100.0))
+                    .layouter(&mut layouter)
+                    .id(Id::new(find::EDIT_ID_EDITDOC));
+                let output = edit.show(ui);
+                find::after_show_scroll(ui, state, FindTarget::EditDoc, &output);
+                // Ctrl/Cmd+F 打开文本查找弹窗
+                let fctx = ui.ctx().clone();
+                find::handle_hotkey(&fctx, state, FindTarget::EditDoc, &output.response);
+                output.response
             });
             // 聚焦时持续重绘，保持光标闪烁
             if resp.inner.has_focus() {
@@ -1107,12 +1114,13 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
     let mut validate = false;
     let w = ctx.screen_rect().width() * 0.7;
     let h = ctx.screen_rect().height() * 0.7;
+    let mut edit_open = state.edit_doc_open;
     Window::new(title)
-        .open(&mut state.edit_doc_open)
+        .open(&mut edit_open)
         .resizable(true)
         .default_size([w, h])
         .show(ctx, |ui| {
-            dark_editor(ui, &mut state.selected_doc_text);
+            dark_editor(ui, state);
             ui.horizontal(|ui| {
                 if ui.button(lang.tr("doc.validate")).clicked() {
                     validate = true;
@@ -1125,6 +1133,7 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
                 }
             });
         });
+    state.edit_doc_open = edit_open;
     if validate {
         let txt = state.selected_doc_text.clone();
         validate_document(state, &txt);
@@ -1157,12 +1166,13 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
     let mut validate = false;
     let w = ctx.screen_rect().width() * 0.7;
     let h = ctx.screen_rect().height() * 0.7;
+    let mut insert_open = state.insert_doc_open;
     Window::new(lang.tr("doc.insert_title"))
-        .open(&mut state.insert_doc_open)
+        .open(&mut insert_open)
         .resizable(true)
         .default_size([w, h])
         .show(ctx, |ui| {
-            dark_editor(ui, &mut state.selected_doc_text);
+            dark_editor(ui, state);
             ui.horizontal(|ui| {
                 if ui.button(lang.tr("doc.validate")).clicked() {
                     validate = true;
@@ -1175,6 +1185,7 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
                 }
             });
         });
+    state.insert_doc_open = insert_open;
     if validate {
         let txt = state.selected_doc_text.clone();
         validate_document(state, &txt);
@@ -1278,8 +1289,9 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
     let mut close = false;
     let w = ctx.screen_rect().width() * 0.7;
     let h = ctx.screen_rect().height() * 0.7;
+    let mut view_open = state.view_doc_open;
     Window::new(title)
-        .open(&mut state.view_doc_open)
+        .open(&mut view_open)
         .resizable(true)
         .default_size([w, h])
         .show(ctx, |ui| {
@@ -1291,17 +1303,22 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
                 .inner_margin(Margin::same(4.0))
                 .show(ui, |ui| {
                     ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
+                    let (fm_ranges, fm_current) = find::highlight_ranges(state, FindTarget::ViewDoc);
                     let mut layouter = |ui: &Ui, t: &str, w: f32| {
-                        syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+                        syntax::highlight_with_find(ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current)
                     };
                     ScrollArea::vertical().show(ui, |ui| {
-                        ui.add(
-                            TextEdit::multiline(&mut text)
-                                .code_editor()
-                                .text_color(TEXT_COLOR)
-                                .desired_width((avail - 12.0).max(100.0))
-                                .layouter(&mut layouter),
-                        );
+                        let edit = TextEdit::multiline(&mut text)
+                            .code_editor()
+                            .text_color(TEXT_COLOR)
+                            .desired_width((avail - 12.0).max(100.0))
+                            .layouter(&mut layouter)
+                            .id(Id::new(find::EDIT_ID_VIEWDOC));
+                        let output = edit.show(ui);
+                        find::after_show_scroll(ui, state, FindTarget::ViewDoc, &output);
+                        // Ctrl/Cmd+F 打开文本查找弹窗
+                        let fctx = ui.ctx().clone();
+                        find::handle_hotkey(&fctx, state, FindTarget::ViewDoc, &output.response);
                     });
                 });
             state.view_doc_text = text;
@@ -1311,6 +1328,7 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
                 }
             });
         });
+    state.view_doc_open = view_open;
     if close {
         state.view_doc_open = false;
     }

@@ -11,8 +11,9 @@ use egui::{
     Rect, Rounding, ScrollArea, Sense, Stroke, TextEdit, TopBottomPanel, Ui, Vec2,
 };
 
-use crate::app::{AppState, QueryMode, QueryTab, ViewMode};
+use crate::app::{AppState, FindTarget, QueryMode, QueryTab, ViewMode};
 use crate::icons;
+use crate::ui::find;
 use crate::ui::result_view;
 use crate::ui::syntax;
 
@@ -456,9 +457,23 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
         let cursor_style = &mut ui.style_mut().visuals.text_cursor;
         cursor_style.stroke = Stroke::new(2.0_f32, Color32::from_rgb(0x00, 0xFF, 0x00));
         cursor_style.blink = true;
+        let target = if is_agg {
+            FindTarget::Agg
+        } else {
+            FindTarget::Script
+        };
+        let (fm_ranges, fm_current) = find::highlight_ranges(state, target);
         // 语法高亮：默认近白、字符串（单/双引号）绿色（Robo3T 深色编辑器风格）
         let mut layouter = |ui: &Ui, text: &str, wrap_width: f32| {
-            syntax::highlight_with_fg(ui, text, wrap_width, SCRIPT_FG, syntax::STR)
+            syntax::highlight_with_find(
+                ui,
+                text,
+                wrap_width,
+                SCRIPT_FG,
+                syntax::STR,
+                &fm_ranges,
+                fm_current,
+            )
         };
         let mut edit = TextEdit::multiline(&mut buf)
             .code_editor()
@@ -466,12 +481,18 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
             .desired_width(ui.available_width())
             .text_color(SCRIPT_FG)
             .layouter(&mut layouter)
-            .lock_focus(true);
+            .lock_focus(true)
+            .id(Id::new(if is_agg {
+                find::EDIT_ID_AGG
+            } else {
+                find::EDIT_ID_SCRIPT
+            }));
         if is_agg {
             edit = edit.hint_text(state.lang.tr("agg.pipeline"));
         }
-        let response = ui.add(edit);
-        if response.has_focus()
+        let output = edit.show(ui);
+        find::after_show_scroll(ui, state, target, &output);
+        if output.response.has_focus()
             && ui.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Enter))
         {
             ui.input_mut(|input| {
@@ -480,6 +501,9 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
             });
             submit_query = true;
         }
+        // Ctrl/Cmd+F 打开文本查找弹窗
+        let ctx = ui.ctx().clone();
+        find::handle_hotkey(&ctx, state, target, &output.response);
     });
     if is_agg {
         state.agg_text = buf;
