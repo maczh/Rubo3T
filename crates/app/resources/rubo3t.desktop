@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Rubo3T
+GenericName=MongoDB Management Tool
+Comment=Robo3T-compatible MongoDB GUI rewritten in Rust
+Exec=rubo3t
+Icon=rubo3t
+Type=Application
+Terminal=false
+Categories=Development;Database;Utility;
+StartupWMClass=Rubo3T

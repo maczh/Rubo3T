@@ -7,8 +7,8 @@
 
 use eframe::egui;
 use egui::{
-    Align, Align2, Button, Color32, ComboBox, Context, DragValue, Frame, Layout, Margin, Rounding,
-    ScrollArea, Sense, Stroke, TextEdit, Ui, UiBuilder, Vec2, Window,
+    Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Frame, Layout, Margin,
+    Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui, UiBuilder, Vec2, Window,
 };
 
 use crate::app::{AppState, ConnDlgMode, ExplorerAction};
@@ -246,6 +246,49 @@ fn pw_row(ui: &mut Ui, label: &str, text: &mut String, show: &mut bool, lang: La
 
 // ---------------------------------------------------------------- §11 MongoDB Connections
 
+/// 将文本按可用宽度截断，超出部分以 "..." 结尾（连接列表地址列超长时使用）。
+fn truncate_with_dots(ui: &mut Ui, text: &str, max_width: f32) -> String {
+    const ELLIPSIS: &str = "...";
+    if max_width <= 1.0 {
+        return ELLIPSIS.to_string();
+    }
+    let font = ui
+        .style()
+        .text_styles
+        .get(&TextStyle::Body)
+        .cloned()
+        .unwrap_or_else(FontId::default);
+    let width_of = |s: &str| -> f32 {
+        ui.fonts(|f| {
+            f.layout(s.to_string(), font.clone(), Color32::WHITE, f32::INFINITY)
+                .size()
+                .x
+        })
+    };
+    if width_of(text) <= max_width {
+        return text.to_string();
+    }
+    let ell_w = width_of(ELLIPSIS);
+    if ell_w >= max_width {
+        return ELLIPSIS.to_string();
+    }
+    let n = text.chars().count();
+    let mut lo = 0usize;
+    let mut hi = n;
+    while lo < hi {
+        let mid = (lo + hi + 1) / 2;
+        let cand: String = text.chars().take(mid).collect();
+        if width_of(&cand) + ell_w <= max_width {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    let mut out: String = text.chars().take(lo).collect();
+    out.push_str(ELLIPSIS);
+    out
+}
+
 fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
     let mut selected = state.conn_dlg_selected;
@@ -363,7 +406,9 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
                             ui.add(icons::img(icon).fit_to_original_size(1.0));
                             ui.label(&conn.name);
                         });
-                        cols[1].label(&addr);
+                        let addr_max = cols[1].available_width();
+                        let addr_disp = truncate_with_dots(&mut cols[1], &addr, addr_max);
+                        cols[1].label(&addr_disp);
                         cols[2].label(attrs.join(", "));
                         if conn.credential.enabled {
                             cols[3].horizontal(|ui| {
@@ -488,7 +533,11 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
     if act_cancel {
         state.conn_dlg_open = false;
     }
-    state.conn_dlg_selected = selected;
+    // 新建/克隆连接时 conn_dlg_selected 应为 None（见 act_create / act_clone 块），
+    // 此处不可回写为 selected，否则保存时会覆盖原连接。
+    if !(act_create || act_clone) {
+        state.conn_dlg_selected = selected;
+    }
 
     // Remove 确认框
     if let Some(idx) = state.confirm_remove_idx {
@@ -637,6 +686,8 @@ fn render_connection_settings_dialog(ctx: &Context, state: &mut AppState) {
 
 /// 返回 `Some((browse_target, 当前路径))` 表示用户点击了某个 Browse 按钮。
 fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+    // 各组件上下行间隔不小于 8px
+    ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.horizontal(|ui| {
         ui.label(lang.tr("common.type"));
         let mut mode = dlg.mode;
@@ -716,6 +767,8 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
 }
 
 fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Option<FeatureGate>) -> Option<(u8, String)> {
+    // 各组件上下行间隔不小于 8px
+    ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.checkbox(&mut dlg.auth_enabled, lang.tr("form.auth.perform"));
     if !dlg.auth_enabled {
         return None;
@@ -814,6 +867,8 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
 }
 
 fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+    // 各组件上下行间隔不小于 8px
+    ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.checkbox(&mut dlg.ssh_enabled, lang.tr("form.ssh.use_tunnel"));
     if !dlg.ssh_enabled {
         return None;
@@ -885,6 +940,8 @@ fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
 }
 
 fn render_tls_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+    // 各组件上下行间隔不小于 8px
+    ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.checkbox(&mut dlg.ssl_enabled, lang.tr("form.tls.use"));
     if !dlg.ssl_enabled {
         return None;
@@ -975,6 +1032,8 @@ fn render_tls_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
 }
 
 fn render_advanced_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+    // 各组件上下行间隔不小于 8px
+    ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.horizontal(|ui| {
         ui.label(lang.tr("settings.default_db"));
         ui.add(TextEdit::singleline(&mut dlg.default_db).desired_width(200.0));

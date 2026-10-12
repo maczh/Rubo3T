@@ -22,3 +22,62 @@ fontdb = { workspace = true }
 once_cell = { workspace = true }
 chrono.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "gif"] }
+
+[build-dependencies]
+embed-resource = "2.4"
+
+# ---------------------------------------------------------------------------
+# 应用打包元数据：cargo-bundle / cargo-packager / cargo-wix / cargo-nsis 均可读取
+# ---------------------------------------------------------------------------
+[package.metadata.bundle]
+name = "Rubo3T"
+identifier = "com.maczh.rubo3t"
+icon = [
+    "resources/icons/logo-16x16.png",
+    "resources/icons/logo-32x32.png",
+    "resources/icons/logo-128x128.png",
+    "resources/icons/logo-256x256.png",
+    "resources/icons/logo.png",
+    "resources/icons/logo.ico",
+    "resources/icons/logo.icns",
+]
+version = "0.1.0"
+copyright = "Copyright (c) 2026 maczh"
+category = "Developer Tool"
+short_description = "用 Rust 重写的 MongoDB 管理工具（兼容 Robo3T 使用习惯）"
+long_description = "Rubo3T 是 Robo3T 的 Rust 重写版本，基于 egui + 官方 mongodb Rust 驱动，支持 MongoDB 3.x 到 8.x、副本集、分片集群、Atlas SRV、各版本认证协议与 SSH 隧道。"
+# macOS Info.plist
+osx_minimum_system_version = "10.13"
+# Debian / RPM
+deb_depends = ["libgtk-3-0", "libwebkit2gtk-4.0-37", "libstdc++6"]
+# 启动时不需要额外运行时资源（图标已通过 include_bytes! 嵌入），此处留空以
+# 避免把 crates/app/resources 整目录重复打进安装包。
+resources = []
+
+# ---------------------------------------------------------------------------
+# cargo-packager 配置（支持本次需求所需的全部安装包格式，单一工具跨三平台）
+# ---------------------------------------------------------------------------
+[package.metadata.packager]
+product_name = "Rubo3T"
+identifier = "com.maczh.rubo3t"
+version = "0.1.0"
+authors = ["maczh"]
+description = "用 Rust 重写的 MongoDB 管理工具，兼容 Robo3T 使用习惯"
+homepage = "https://github.com/maczh/Rubo3T"
+copyright = "Copyright (c) 2026 maczh"
+category = "DeveloperTool"
+icons = ["resources/icons/logo.png"]
+# 输出目录相对于 crates/app/Cargo.toml；../../ 指向 workspace root 的 target/release/bundle。
+out_dir = "../../target/release/bundle"
+# 具体格式按平台在 scripts/package.py 与 release.yml 中通过 --formats 指定，
+# 避免在非目标平台上 cargo-packager 尝试生成无法构建的格式。
+
+# ---------------------------------------------------------------------------
+# cargo-generate-rpm 配置（生成 .rpm；cargo-packager 自身不支持 rpm）
+# ---------------------------------------------------------------------------
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/rubo3t", dest = "/usr/bin/rubo3t", mode = "0755" },
+    { source = "resources/icons/logo-256x256.png", dest = "/usr/share/pixmaps/rubo3t.png", mode = "0644" },
+    { source = "resources/rubo3t.desktop", dest = "/usr/share/applications/rubo3t.desktop", mode = "0644" },
+]

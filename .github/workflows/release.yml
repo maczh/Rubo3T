@@ -1,0 +1,123 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (optional)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+          - os: ubuntu-22.04
+            label: Linux
+          - os: windows-latest
+            label: Windows
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --locked
+
+      - name: Install cargo-generate-rpm
+        if: matrix.label == 'Linux'
+        run: cargo install cargo-generate-rpm --locked
+
+      # ---------- 平台专用前置依赖 ----------
+      - name: Install Linux packaging tools
+        if: matrix.label == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev rpm libfuse2 \
+            libgtk-3-dev libwebkit2gtk-4.0-dev
+          # appimagetool
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+
+      - name: Install Windows packaging tools
+        if: matrix.label == 'Windows'
+        shell: powershell
+        run: |
+          # WiX Toolset
+          dotnet tool install --global wix
+          wix --version
+          # NSIS
+          choco install nsis -y
+
+      # ---------- 构建与打包 ----------
+      - name: Build release binary
+        run: cargo build --release
+
+      # macOS: .app via cargo-packager, .dmg via hdiutil（避开 create-dmg AppleScript）
+      - name: Package macOS app
+        if: matrix.label == 'macOS'
+        run: cargo packager --release --verbose --formats app
+
+      - name: Create macOS .dmg
+        if: matrix.label == 'macOS'
+        run: |
+          APP="target/release/bundle/Rubo3T.app"
+          DMG="target/release/bundle/Rubo3T_$(uname -m).dmg"
+          mkdir -p /tmp/rubo3t-dmg
+          cp -a "$APP" /tmp/rubo3t-dmg/Rubo3T.app
+          ln -s /Applications /tmp/rubo3t-dmg/Applications
+          hdiutil create -volname Rubo3T -srcfolder /tmp/rubo3t-dmg -ov -format UDZO "$DMG"
+
+      # Linux: .deb + .AppImage via cargo-packager, .rpm via cargo-generate-rpm
+      - name: Package Linux deb/AppImage
+        if: matrix.label == 'Linux'
+        run: cargo packager --release --verbose --formats deb,appimage
+
+      - name: Package Linux .rpm
+        if: matrix.label == 'Linux'
+        run: cargo generate-rpm -p rubo3t --target x86_64-unknown-linux-gnu
+
+      # Windows: .msi (WiX) + -setup.exe (NSIS) via cargo-packager
+      - name: Package Windows
+        if: matrix.label == 'Windows'
+        run: cargo packager --release --verbose --formats wix,nsis
+
+      # ---------- 上传产物 ----------
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rubo3t-${{ matrix.label }}
+          path: target/release/bundle/**/*
+          if-no-files-found: error
+
+      - name: Upload RPM artifact
+        if: matrix.label == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rubo3t-Linux-rpm
+          path: target/release/generate-rpm/**/*.rpm
+          if-no-files-found: error
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            target/release/bundle/**/*
+            target/release/generate-rpm/**/*.rpm
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
