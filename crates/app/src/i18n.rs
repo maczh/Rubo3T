@@ -304,6 +304,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("menu.line_numbers", "默认显示行号");
     m.insert("menu.auto_exec", "新标签页自动执行代码");
     m.insert("menu.disable_conn_shortcuts", "禁用连接快捷键");
+    m.insert("menu.default_sort", "默认排序");
+    m.insert("sort.none", "无（自然顺序）");
+    m.insert("sort.id_asc", "_id 升序");
+    m.insert("sort.id_desc", "_id 降序");
     m.insert("menu.full_screen", "全屏");
     m.insert("menu.next_tab", "下一个标签");
     m.insert("menu.prev_tab", "上一个标签");
@@ -757,6 +761,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("menu.line_numbers", "Show Line Numbers By Default");
     m.insert("menu.auto_exec", "Automatically execute code in new tab");
     m.insert("menu.disable_conn_shortcuts", "Disable Connection Shortcuts");
+    m.insert("menu.default_sort", "Default Sort");
+    m.insert("sort.none", "None (natural order)");
+    m.insert("sort.id_asc", "_id Ascending");
+    m.insert("sort.id_desc", "_id Descending");
     m.insert("menu.full_screen", "Full Screen");
     m.insert("menu.next_tab", "Select Next Tab");
     m.insert("menu.prev_tab", "Select Previous Tab");

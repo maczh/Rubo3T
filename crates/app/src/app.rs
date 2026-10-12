@@ -38,6 +38,73 @@ impl ViewMode {
     }
 }
 
+/// 点击左侧集合名打开标签时，默认查询的排序方式。
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DefaultSort {
+    /// 不附加排序（MongoDB 自然顺序）。
+    None,
+    /// 按 `_id` 升序。
+    IdAsc,
+    /// 按 `_id` 降序（Robo3T 习惯：最新文档在前）。
+    #[default]
+    IdDesc,
+}
+
+impl DefaultSort {
+    /// 对应查询脚本中追加的 `.sort(...)` 片段（空串表示不加）。
+    pub fn sort_script_suffix(self) -> &'static str {
+        match self {
+            DefaultSort::None => "",
+            DefaultSort::IdAsc => ".sort({\"_id\": 1})",
+            DefaultSort::IdDesc => ".sort({\"_id\": -1})",
+        }
+    }
+
+    /// 对应标签页 `sort` 文本（空对象表示无）。
+    pub fn sort_text(self) -> &'static str {
+        match self {
+            DefaultSort::None => "{}",
+            DefaultSort::IdAsc => "{\"_id\": 1}",
+            DefaultSort::IdDesc => "{\"_id\": -1}",
+        }
+    }
+
+    pub fn label(self, lang: Lang) -> &'static str {
+        match self {
+            DefaultSort::None => lang.tr("sort.none"),
+            DefaultSort::IdAsc => lang.tr("sort.id_asc"),
+            DefaultSort::IdDesc => lang.tr("sort.id_desc"),
+        }
+    }
+}
+
+impl serde::Serialize for DefaultSort {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(match self {
+            DefaultSort::None => "none",
+            DefaultSort::IdAsc => "id_asc",
+            DefaultSort::IdDesc => "id_desc",
+        })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for DefaultSort {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(match s.as_str() {
+            "id_asc" => DefaultSort::IdAsc,
+            "id_desc" => DefaultSort::IdDesc,
+            _ => DefaultSort::None,
+        })
+    }
+}
+
 /// 查询标签页的脚本执行模式：Find（JS 风格脚本）/ Aggregate（JSON 管道数组）。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum QueryMode {
@@ -285,6 +352,9 @@ pub struct AppSettings {
     pub load_mongorc: bool,
     #[serde(default)]
     pub disable_conn_shortcuts: bool,
+    /// 点击集合名打开标签时的默认排序方式。
+    #[serde(default)]
+    pub default_sort: DefaultSort,
 }
 
 impl serde::Serialize for ViewMode {
@@ -645,7 +715,10 @@ impl AppState {
             self.next_tab_id += 1;
             let mut tab = QueryTab::new(id, db, coll);
             tab.view_mode = self.current_view_mode;
-            tab.script = format!("db.{}.find({{}})", coll);
+            // 按「选项 → 默认排序」生成默认查询脚本
+            let sort = self.app_settings.default_sort;
+            tab.script = format!("db.{}.find({{}}){}", coll, sort.sort_script_suffix());
+            tab.sort = sort.sort_text().to_string();
             tab.dirty = false;
             self.tabs.push(tab);
             self.active_tab = self.tabs.len() - 1;

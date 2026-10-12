@@ -15,6 +15,7 @@ use crate::app::{AppState, ConnDlgMode, ExplorerAction};
 use crate::form::{ConnectionForm, MechChoice};
 use crate::i18n::{trf, Lang};
 use crate::icons;
+use crate::ui::syntax;
 use rubo3t_core::bson_ext;
 use rubo3t_core::Document;
 use rubo3t_core::settings::{validate, ConnectionMode, SshAuthMethod};
@@ -37,6 +38,13 @@ const COL0_W: f32 = 180.0;
 const COL1_W: f32 = 188.0;
 const COL2_W: f32 = 98.0;
 const CONNECTION_ROW_HEIGHT: f32 = 22.0;
+
+/// 文本视图配色（与 `result_view::text_view` 保持一致）：
+/// 普通文字 A1FCA2、字符串高亮 #1F9D5E、文本框背景 #494C4E、编辑器内底色 #3D3F41。
+const TEXT_COLOR: Color32 = Color32::from_rgb(0xA1, 0xFC, 0xA2);
+const TEXT_STR: Color32 = Color32::from_rgb(0x1F, 0x9D, 0x5E);
+const TEXTBOX_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
+const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
 
 /// 主按钮浅边框。
 fn primary_stroke() -> Stroke {
@@ -977,19 +985,45 @@ fn render_advanced_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Opt
 
 // ---------------------------------------------------------------- §13 文档编辑 / 插入
 
-/// 深色多行编辑器（与脚本编辑器一致：#494C4E 背景 + 浅色文字）。
+/// 深色多行编辑器：配色与 `result_view::text_view` 完全一致（#494C4E 背景、
+/// 普通文字 A1FCA2、字符串高亮 #1F9D5E），ScrollArea 自适应宽度。
+/// 编辑光标为 #00C000 并以约 2Hz 频率闪烁（聚焦时持续重绘驱动）。
 fn dark_editor(ui: &mut Ui, text: &mut String) {
-    let bg = Color32::from_rgb(0x49, 0x4C, 0x4E);
-    let fg = Color32::from_rgb(0xE6, 0xE6, 0xE6);
+    let avail = ui.available_width();
+    let ctx = ui.ctx().clone();
+    // 每 0.5s 在 #00C000 与透明之间切换，形成闪烁
+    let blink_on = (ctx.input(|i| i.time) * 2.0).floor() % 2.0 == 0.0;
+    let cursor_color = if blink_on {
+        Color32::from_rgb(0x00, 0xC0, 0x00)
+    } else {
+        Color32::TRANSPARENT
+    };
     Frame::none()
-        .fill(bg)
+        .fill(TEXTBOX_BG)
         .rounding(Rounding::same(2.0))
         .inner_margin(Margin::same(4.0))
         .show(ui, |ui| {
-            ui.style_mut().visuals.override_text_color = Some(fg);
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add(TextEdit::multiline(text).code_editor().desired_rows(18));
+            // 编辑器内底色与 text_view 一致
+            ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
+            // 编辑光标设为 #00C000（闪烁由下方 request_repaint 驱动）
+            ui.style_mut().visuals.text_cursor.stroke = Stroke::new(2.0_f32, cursor_color);
+            // 普通文字 A1FCA2，字符串高亮 #1F9D5E（与 text_view 相同）
+            let mut layouter = |ui: &Ui, t: &str, w: f32| {
+                syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+            };
+            let resp = ScrollArea::vertical().show(ui, |ui| {
+                ui.add(
+                    TextEdit::multiline(text)
+                        .code_editor()
+                        .text_color(TEXT_COLOR)
+                        .desired_width((avail - 12.0).max(100.0))
+                        .layouter(&mut layouter),
+                )
             });
+            // 聚焦时持续重绘，保持光标闪烁
+            if resp.inner.has_focus() {
+                ctx.request_repaint();
+            }
         });
 }
 
@@ -1012,10 +1046,12 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
     let mut save = false;
     let mut cancel = false;
     let mut validate = false;
+    let w = ctx.screen_rect().width() * 0.7;
+    let h = ctx.screen_rect().height() * 0.7;
     Window::new(title)
         .open(&mut state.edit_doc_open)
         .resizable(true)
-        .default_size([600.0, 500.0])
+        .default_size([w, h])
         .show(ctx, |ui| {
             dark_editor(ui, &mut state.selected_doc_text);
             ui.horizontal(|ui| {
@@ -1060,10 +1096,12 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
     let mut save = false;
     let mut cancel = false;
     let mut validate = false;
+    let w = ctx.screen_rect().width() * 0.7;
+    let h = ctx.screen_rect().height() * 0.7;
     Window::new(lang.tr("doc.insert_title"))
         .open(&mut state.insert_doc_open)
         .resizable(true)
-        .default_size([600.0, 500.0])
+        .default_size([w, h])
         .show(ctx, |ui| {
             dark_editor(ui, &mut state.selected_doc_text);
             ui.horizontal(|ui| {
@@ -1173,20 +1211,40 @@ fn render_import_dialog(ctx: &Context, state: &mut AppState) {
     }
 }
 
-/// 查看文档弹窗（只读）。
+/// 查看文档弹窗（只读）：配色与 `result_view::text_view` 一致（#494C4E 背景、
+/// 普通文字 A1FCA2、字符串高亮 #1F9D5E），ScrollArea 自适应宽度，对话框默认主窗体 70%。
 fn render_view_document(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
     let title = state.view_doc_title.clone();
     let mut close = false;
+    let w = ctx.screen_rect().width() * 0.7;
+    let h = ctx.screen_rect().height() * 0.7;
     Window::new(title)
         .open(&mut state.view_doc_open)
         .resizable(true)
-        .default_size([600.0, 500.0])
+        .default_size([w, h])
         .show(ctx, |ui| {
+            let avail = ui.available_width();
             let mut text = state.view_doc_text.clone();
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.add(TextEdit::multiline(&mut text).code_editor().desired_rows(24));
-            });
+            Frame::none()
+                .fill(TEXTBOX_BG)
+                .rounding(Rounding::same(2.0))
+                .inner_margin(Margin::same(4.0))
+                .show(ui, |ui| {
+                    ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
+                    let mut layouter = |ui: &Ui, t: &str, w: f32| {
+                        syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+                    };
+                    ScrollArea::vertical().show(ui, |ui| {
+                        ui.add(
+                            TextEdit::multiline(&mut text)
+                                .code_editor()
+                                .text_color(TEXT_COLOR)
+                                .desired_width((avail - 12.0).max(100.0))
+                                .layouter(&mut layouter),
+                        );
+                    });
+                });
             state.view_doc_text = text;
             ui.horizontal(|ui| {
                 if ui.button(lang.tr("common.close")).clicked() {

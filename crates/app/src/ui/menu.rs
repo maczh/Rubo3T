@@ -3,7 +3,7 @@
 use eframe::egui;
 use egui::{menu, Context, TopBottomPanel};
 
-use crate::app::{AppState, ViewMode};
+use crate::app::{AppState, DefaultSort, ViewMode};
 use crate::i18n::Lang;
 
 pub fn render(ctx: &Context, state: &mut AppState) {
@@ -99,6 +99,11 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                 if ui.checkbox(&mut state.app_settings.line_numbers, lang.tr("menu.line_numbers")).clicked() { ui.close_menu(); }
                 if ui.checkbox(&mut state.app_settings.auto_exec, lang.tr("menu.auto_exec")).clicked() { ui.close_menu(); }
                 if ui.checkbox(&mut state.app_settings.disable_conn_shortcuts, lang.tr("menu.disable_conn_shortcuts")).clicked() { ui.close_menu(); }
+                ui.menu_button(lang.tr("menu.default_sort"), |ui| {
+                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::None, lang.tr("sort.none")).clicked() { state.save_settings(); ui.close_menu(); }
+                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::IdAsc, lang.tr("sort.id_asc")).clicked() { state.save_settings(); ui.close_menu(); }
+                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::IdDesc, lang.tr("sort.id_desc")).clicked() { state.save_settings(); ui.close_menu(); }
+                });
                 // 语言 / Language 子菜单移入 Options 底部（Robo3T 顶级无此项）
                 ui.separator();
                 ui.menu_button(lang.tr("menu.lang"), |ui| {

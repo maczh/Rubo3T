@@ -16,8 +16,11 @@ use crate::icons;
 use crate::ui::syntax;
 use rubo3t_core::bson::Bson;
 
-/// 脚本编辑器 / 文本视图的深色背景（#121212）；文字颜色由 [`syntax`] 高亮提供。
-const SCRIPT_BG: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
+/// 脚本编辑器 / 文本视图的深色背景（#3D3F41）；文字颜色由 [`syntax`] 高亮提供。
+const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
+const TEXT_COLOR: Color32 = Color32::from_rgb(0xA1, 0xFC, 0xA2);
+/// 文本视图中字符串（引号内）的绿色高亮，由用户指定为 #1F9D5E。
+const TEXT_STR: Color32 = Color32::from_rgb(0x1F, 0x9D, 0x5E);
 const TEXTBOX_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
 /// 表头背景（浅灰）与列分隔线。
 const HEADER_BG: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xE8);
@@ -613,11 +616,15 @@ pub fn text_view(ui: &mut Ui, state: &mut AppState) {
         .show(ui, |ui| {
             // TextEdit 自身内底色与深色 frame 保持一致
             ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
-            let mut layouter = |ui: &Ui, t: &str, w: f32| syntax::highlight(ui, t, w);
+            // 文本视图默认字体色 A1FCA2（#A1FCA2）；字符串高亮用 #1F9D5E
+            let mut layouter = |ui: &Ui, t: &str, w: f32| {
+                syntax::highlight_with_fg(ui, t, w, TEXT_COLOR, TEXT_STR)
+            };
             ScrollArea::vertical().show(ui, |ui| {
                 ui.add(
                     TextEdit::multiline(&mut text)
                         .code_editor()
+                        .text_color(TEXT_COLOR)
                         .desired_width((avail - 12.0).max(100.0))
                         .layouter(&mut layouter),
                 );

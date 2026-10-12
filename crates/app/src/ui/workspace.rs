@@ -18,8 +18,8 @@ use crate::ui::syntax;
 
 /// 标签栏背景色（与窗口浅灰一致，用于切角时填充）。
 const TAB_BAR_BG: Color32 = Color32::from_rgb(0xF0, 0xF0, 0xF0);
-/// 脚本编辑器背景（#121212）与文字（白色）。
-const SCRIPT_BG: Color32 = Color32::from_rgb(0x12, 0x12, 0x12);
+/// 脚本编辑器背景（#3D3F41）与文字（白色）。
+const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
 const SCRIPT_FG: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
 /// 顶部状态栏文字灰（#A6A6A6）。
 const STATUS_GRAY: Color32 = Color32::from_rgb(0xA6, 0xA6, 0xA6);
@@ -458,7 +458,7 @@ fn render_script_editor(ui: &mut Ui, state: &mut AppState) {
         cursor_style.blink = true;
         // 语法高亮：默认近白、字符串（单/双引号）绿色（Robo3T 深色编辑器风格）
         let mut layouter = |ui: &Ui, text: &str, wrap_width: f32| {
-            syntax::highlight_with_fg(ui, text, wrap_width, SCRIPT_FG)
+            syntax::highlight_with_fg(ui, text, wrap_width, SCRIPT_FG, syntax::STR)
         };
         let mut edit = TextEdit::multiline(&mut buf)
             .code_editor()
