@@ -6,3 +6,9 @@ license.workspace = true
 
 [dependencies]
 rubo3t-core = { path = "../core" }
+# 纯 Rust SSH 客户端（基于 tokio），用于本地端口转发隧道。
+# 不再依赖系统 ssh / sshpass，可干净打进跨平台安装包。
+russh = "0.44"
+tokio = { workspace = true }
+# 与 russh 使用同一 async-trait 宏版本，确保 Handler trait 展开一致。
+async-trait = "0.1"
