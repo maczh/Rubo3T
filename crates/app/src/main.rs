@@ -24,6 +24,7 @@ impl eframe::App for AppState {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         // 把 SSH 隧道调试日志抽到主日志框（隧道在后台线程/运行时并发写入共享缓冲）。
         self.drain_ssh_logs();
+        self.poll_query();
 
         // 同步当前 tab 的状态到 app state 渲染字段
         if !self.tabs.is_empty() {
@@ -40,6 +41,8 @@ impl eframe::App for AppState {
         ui::menu::render(ctx, self);
         ui::toolbar::render(ctx, self);
         ui::explorer::render(ctx, self);
+
+        ui::workspace::render_status_bar(ctx, self);
 
         // 日志面板（底部，受状态栏 Logs 按钮控制显隐）
         if self.show_logs {
@@ -60,8 +63,6 @@ impl eframe::App for AppState {
         }
 
         // 底部状态栏（紧贴窗口底部，位于日志面板之下）
-        ui::workspace::render_status_bar(ctx, self);
-
         ui::workspace::render(ctx, self);
         ui::dialogs::render(ctx, self);
         // 文本查找弹窗（Ctrl/Cmd+F 触发），置于最上层渲染

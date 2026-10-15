@@ -19,10 +19,10 @@ pub mod error;
 pub mod settings;
 pub mod version;
 
-/// 与 `mongodb` 驱动共用的 BSON 文档类型（两处为同一类型）。
-pub use bson::Document;
 /// 暴露 `bson` crate，便于上层用 `doc!` 等宏构造文档。
 pub use bson;
+/// 与 `mongodb` 驱动共用的 BSON 文档类型（两处为同一类型）。
+pub use bson::Document;
 
 pub use error::{RuboError, RuboResult};
 pub use settings::{

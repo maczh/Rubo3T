@@ -25,7 +25,7 @@ use async_trait::async_trait;
 use rubo3t_core::error::{RuboError, RuboResult};
 use rubo3t_core::settings::{SshAuthMethod, SshSettings};
 
-use russh::client::{connect, Config, Handler, Handle};
+use russh::client::{connect, Config, Handle, Handler};
 use russh::keys::key::PublicKey;
 use russh::keys::load_secret_key;
 use tokio::io::copy_bidirectional;
@@ -102,12 +102,7 @@ impl Tunnel {
         };
         log(&format!(
             "SSH 隧道启动: {}@{}:{} → 127.0.0.1:{} → {}:{}",
-            settings.user,
-            settings.host,
-            settings.port,
-            local_port_hint,
-            remote_host,
-            remote_port,
+            settings.user, settings.host, settings.port, local_port_hint, remote_host, remote_port,
         ));
 
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -118,7 +113,12 @@ impl Tunnel {
 
         // 在私有运行时内完成连接、认证与监听绑定；随后接受循环作为任务继续运行。
         let (shutdown, task, actual_port) = rt
-            .block_on(setup_tunnel(settings, remote_host, remote_port, logger.clone()))
+            .block_on(setup_tunnel(
+                settings,
+                remote_host,
+                remote_port,
+                logger.clone(),
+            ))
             .map_err(|e| RuboError::Ssh(format!("SSH 隧道启动失败: {e}")))?;
 
         Ok(Tunnel {
@@ -166,7 +166,10 @@ struct ClientHandler;
 impl Handler for ClientHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, _server_public_key: &PublicKey) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
         Ok(true)
     }
 }
@@ -197,9 +200,12 @@ async fn setup_tunnel(
         "正在建立 SSH TCP 连接: {}:{} ...",
         settings.host, settings.port
     ));
-    let mut handle = connect(config, addr, ClientHandler)
-        .await
-        .map_err(|e| RuboError::Ssh(format!("SSH 连接失败（{}:{}）: {}", settings.host, settings.port, e)))?;
+    let mut handle = connect(config, addr, ClientHandler).await.map_err(|e| {
+        RuboError::Ssh(format!(
+            "SSH 连接失败（{}:{}）: {}",
+            settings.host, settings.port, e
+        ))
+    })?;
     log(&format!(
         "SSH TCP 连接已建立: {}:{}",
         settings.host, settings.port
@@ -235,10 +241,7 @@ async fn setup_tunnel(
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|e| RuboError::Ssh(format!("无法在本地绑定随机端口监听: {e}")))?;
-    let local_port = listener
-        .local_addr()
-        .map(|a| a.port())
-        .unwrap_or(0);
+    let local_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
     log(&format!(
         "本地监听已绑定: 127.0.0.1:{}（转发至 {}:{}）",
         local_port, remote_host, remote_port
@@ -278,7 +281,9 @@ where
         .await
         .map_err(|e| RuboError::Ssh(format!("SSH 密码认证出错: {e}")))?;
     if !ok {
-        return Err(RuboError::Ssh("SSH 密码认证被拒绝，请检查用户名/密码。".into()));
+        return Err(RuboError::Ssh(
+            "SSH 密码认证被拒绝，请检查用户名/密码。".into(),
+        ));
     }
     Ok(())
 }
@@ -305,7 +310,9 @@ where
         .await
         .map_err(|e| RuboError::Ssh(format!("SSH 公钥认证出错: {e}")))?;
     if !ok {
-        return Err(RuboError::Ssh("SSH 公钥认证被拒绝，请检查私钥/证书与用户名。".into()));
+        return Err(RuboError::Ssh(
+            "SSH 公钥认证被拒绝，请检查私钥/证书与用户名。".into(),
+        ));
     }
     Ok(())
 }

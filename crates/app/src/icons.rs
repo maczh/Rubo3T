@@ -16,49 +16,169 @@ use egui::{ColorImage, Context, Id, Image, TextureHandle, TextureOptions};
 /// 所有图标：(URI 名称, 编译期嵌入的 PNG 字节)。
 ///
 /// URI 名称即文件名去掉 `.png` 后缀，例如 `connect_24x24`、`bson_object_16x16`。
-pub const ICONS: &[(&str, &'static [u8])] = &[
-    ("connect_24x24", include_bytes!("../resources/icons/connect_24x24.png")),
-    ("execute_24x24", include_bytes!("../resources/icons/execute_24x24.png")),
-    ("stop_24x24", include_bytes!("../resources/icons/stop_24x24.png")),
-    ("rotate_16x16", include_bytes!("../resources/icons/rotate_16x16.png")),
-    ("text_highlighted_16x16", include_bytes!("../resources/icons/text_highlighted_16x16.png")),
-    ("tree_highlighted_16x16", include_bytes!("../resources/icons/tree_highlighted_16x16.png")),
-    ("table_highlighted_16x16", include_bytes!("../resources/icons/table_highlighted_16x16.png")),
-    ("custom_highlighted_16x16", include_bytes!("../resources/icons/custom_highlighted_16x16.png")),
-    ("server_16x16", include_bytes!("../resources/icons/server_16x16.png")),
-    ("database_16x16", include_bytes!("../resources/icons/database_16x16.png")),
-    ("collection_16x16", include_bytes!("../resources/icons/collection_16x16.png")),
-    ("replica_set_16x16", include_bytes!("../resources/icons/replica_set_16x16.png")),
-    ("function_16x16", include_bytes!("../resources/icons/function_16x16.png")),
-    ("user_16x16", include_bytes!("../resources/icons/user_16x16.png")),
-    ("index_16x16", include_bytes!("../resources/icons/index_16x16.png")),
-    ("key_16x16", include_bytes!("../resources/icons/key_16x16.png")),
-    ("mongodb_16x16", include_bytes!("../resources/icons/mongodb_16x16.png")),
-    ("welcome_tab_icon", include_bytes!("../resources/icons/welcome_tab_icon.png")),
-    ("close_16x16", include_bytes!("../resources/icons/close_16x16.png")),
-    ("left_16x16", include_bytes!("../resources/icons/left_16x16.png")),
-    ("right_16x16", include_bytes!("../resources/icons/right_16x16.png")),
+pub const ICONS: &[(&str, &[u8])] = &[
+    (
+        "connect_24x24",
+        include_bytes!("../resources/icons/connect_24x24.png"),
+    ),
+    (
+        "execute_24x24",
+        include_bytes!("../resources/icons/execute_24x24.png"),
+    ),
+    (
+        "stop_24x24",
+        include_bytes!("../resources/icons/stop_24x24.png"),
+    ),
+    (
+        "rotate_16x16",
+        include_bytes!("../resources/icons/rotate_16x16.png"),
+    ),
+    (
+        "text_highlighted_16x16",
+        include_bytes!("../resources/icons/text_highlighted_16x16.png"),
+    ),
+    (
+        "tree_highlighted_16x16",
+        include_bytes!("../resources/icons/tree_highlighted_16x16.png"),
+    ),
+    (
+        "table_highlighted_16x16",
+        include_bytes!("../resources/icons/table_highlighted_16x16.png"),
+    ),
+    (
+        "custom_highlighted_16x16",
+        include_bytes!("../resources/icons/custom_highlighted_16x16.png"),
+    ),
+    (
+        "server_16x16",
+        include_bytes!("../resources/icons/server_16x16.png"),
+    ),
+    (
+        "database_16x16",
+        include_bytes!("../resources/icons/database_16x16.png"),
+    ),
+    (
+        "collection_16x16",
+        include_bytes!("../resources/icons/collection_16x16.png"),
+    ),
+    (
+        "replica_set_16x16",
+        include_bytes!("../resources/icons/replica_set_16x16.png"),
+    ),
+    (
+        "function_16x16",
+        include_bytes!("../resources/icons/function_16x16.png"),
+    ),
+    (
+        "user_16x16",
+        include_bytes!("../resources/icons/user_16x16.png"),
+    ),
+    (
+        "index_16x16",
+        include_bytes!("../resources/icons/index_16x16.png"),
+    ),
+    (
+        "key_16x16",
+        include_bytes!("../resources/icons/key_16x16.png"),
+    ),
+    (
+        "mongodb_16x16",
+        include_bytes!("../resources/icons/mongodb_16x16.png"),
+    ),
+    (
+        "welcome_tab_icon",
+        include_bytes!("../resources/icons/welcome_tab_icon.png"),
+    ),
+    (
+        "close_16x16",
+        include_bytes!("../resources/icons/close_16x16.png"),
+    ),
+    (
+        "left_16x16",
+        include_bytes!("../resources/icons/left_16x16.png"),
+    ),
+    (
+        "right_16x16",
+        include_bytes!("../resources/icons/right_16x16.png"),
+    ),
     ("logo", include_bytes!("../resources/icons/logo.png")),
-    ("logo-256x256", include_bytes!("../resources/icons/logo-256x256.png")),
-    ("bson_object_16x16", include_bytes!("../resources/icons/bson_object_16x16.png")),
-    ("bson_array_16x16", include_bytes!("../resources/icons/bson_array_16x16.png")),
-    ("bson_string_16x16", include_bytes!("../resources/icons/bson_string_16x16.png")),
-    ("bson_integer_16x16", include_bytes!("../resources/icons/bson_integer_16x16.png")),
-    ("bson_double_16x16", include_bytes!("../resources/icons/bson_double_16x16.png")),
-    ("bson_bool_16x16", include_bytes!("../resources/icons/bson_bool_16x16.png")),
-    ("bson_datetime_16x16", include_bytes!("../resources/icons/bson_datetime_16x16.png")),
-    ("bson_null_16x16", include_bytes!("../resources/icons/bson_null_16x16.png")),
-    ("bson_binary_16x16", include_bytes!("../resources/icons/bson_binary_16x16.png")),
-    ("bson_decimal128_16x16", include_bytes!("../resources/icons/bson_decimal128_16x16.png")),
-    ("bson_unsupported_16x16", include_bytes!("../resources/icons/bson_unsupported_16x16.png")),
+    (
+        "logo-256x256",
+        include_bytes!("../resources/icons/logo-256x256.png"),
+    ),
+    (
+        "bson_object_16x16",
+        include_bytes!("../resources/icons/bson_object_16x16.png"),
+    ),
+    (
+        "bson_array_16x16",
+        include_bytes!("../resources/icons/bson_array_16x16.png"),
+    ),
+    (
+        "bson_string_16x16",
+        include_bytes!("../resources/icons/bson_string_16x16.png"),
+    ),
+    (
+        "bson_integer_16x16",
+        include_bytes!("../resources/icons/bson_integer_16x16.png"),
+    ),
+    (
+        "bson_double_16x16",
+        include_bytes!("../resources/icons/bson_double_16x16.png"),
+    ),
+    (
+        "bson_bool_16x16",
+        include_bytes!("../resources/icons/bson_bool_16x16.png"),
+    ),
+    (
+        "bson_datetime_16x16",
+        include_bytes!("../resources/icons/bson_datetime_16x16.png"),
+    ),
+    (
+        "bson_null_16x16",
+        include_bytes!("../resources/icons/bson_null_16x16.png"),
+    ),
+    (
+        "bson_binary_16x16",
+        include_bytes!("../resources/icons/bson_binary_16x16.png"),
+    ),
+    (
+        "bson_decimal128_16x16",
+        include_bytes!("../resources/icons/bson_decimal128_16x16.png"),
+    ),
+    (
+        "bson_unsupported_16x16",
+        include_bytes!("../resources/icons/bson_unsupported_16x16.png"),
+    ),
     // 新增：工作区标签关闭按钮 + 结果视图按钮（未选中态）+ 耗时图标
-    ("close_2_16x16", include_bytes!("../resources/icons/close_2_16x16.png")),
-    ("close_hover_16x16", include_bytes!("../resources/icons/close_hover_16x16.png")),
-    ("table_16x16", include_bytes!("../resources/icons/table_16x16.png")),
-    ("tree_16x16", include_bytes!("../resources/icons/tree_16x16.png")),
-    ("text_16x16", include_bytes!("../resources/icons/text_16x16.png")),
-    ("custom_16x16", include_bytes!("../resources/icons/custom_16x16.png")),
-    ("time_16x16", include_bytes!("../resources/icons/time_16x16.png")),
+    (
+        "close_2_16x16",
+        include_bytes!("../resources/icons/close_2_16x16.png"),
+    ),
+    (
+        "close_hover_16x16",
+        include_bytes!("../resources/icons/close_hover_16x16.png"),
+    ),
+    (
+        "table_16x16",
+        include_bytes!("../resources/icons/table_16x16.png"),
+    ),
+    (
+        "tree_16x16",
+        include_bytes!("../resources/icons/tree_16x16.png"),
+    ),
+    (
+        "text_16x16",
+        include_bytes!("../resources/icons/text_16x16.png"),
+    ),
+    (
+        "custom_16x16",
+        include_bytes!("../resources/icons/custom_16x16.png"),
+    ),
+    (
+        "time_16x16",
+        include_bytes!("../resources/icons/time_16x16.png"),
+    ),
 ];
 
 /// 程序化绘制的额外图标名称（Open 文件夹 / Save 软盘，浅灰线条）。
@@ -95,11 +215,11 @@ fn build_icon<F: Fn(usize, usize) -> Option<[u8; 3]>>(size: usize, f: F) -> Colo
 fn folder_icon() -> ColorImage {
     let line = [0x5f, 0x5f, 0x5f];
     build_icon(16, |x, y| {
-        let on = (y == 2 || y == 3) && x >= 1 && x <= 6
-            || (y == 4 && x >= 1 && x <= 14)
-            || (y == 13 && x >= 1 && x <= 14)
-            || (x == 1 && y >= 4 && y <= 13)
-            || (x == 14 && y >= 4 && y <= 13);
+        let on = (y == 2 || y == 3) && (1..=6).contains(&x)
+            || (y == 4 && (1..=14).contains(&x))
+            || (y == 13 && (1..=14).contains(&x))
+            || (x == 1 && (4..=13).contains(&y))
+            || (x == 14 && (4..=13).contains(&y));
         if on {
             Some(line)
         } else {
@@ -112,12 +232,12 @@ fn folder_icon() -> ColorImage {
 fn floppy_icon() -> ColorImage {
     let line = [0x5f, 0x5f, 0x5f];
     build_icon(16, |x, y| {
-        let outline = ((y == 1 || y == 14) && x >= 1 && x <= 14)
-            || ((x == 1 || x == 14) && y >= 1 && y <= 14);
-        let shutter = y >= 1 && y <= 5 && x >= 9 && x <= 13;
-        let label = y >= 9 && y <= 13 && x >= 3 && x <= 12;
-        let hole = y >= 2 && y <= 4 && x >= 10 && x <= 12;
-        let label_line = y >= 11 && y <= 12 && x >= 4 && x <= 11;
+        let outline = ((y == 1 || y == 14) && (1..=14).contains(&x))
+            || ((x == 1 || x == 14) && (1..=14).contains(&y));
+        let shutter = (1..=5).contains(&y) && (9..=13).contains(&x);
+        let label = (9..=13).contains(&y) && (3..=12).contains(&x);
+        let hole = (2..=4).contains(&y) && (10..=12).contains(&x);
+        let label_line = (11..=12).contains(&y) && (4..=11).contains(&x);
         if (outline || shutter || label) && !hole && !label_line {
             Some(line)
         } else {
@@ -135,9 +255,7 @@ static ICON_HANDLES: Mutex<Option<HashMap<String, TextureHandle>>> = Mutex::new(
 
 /// 把已注册图标的纹理句柄缓存进 [`ICON_HANDLES`]。
 fn insert_handle(name: &str, handle: TextureHandle) {
-    let mut reg = ICON_HANDLES
-        .lock()
-        .expect("icon handle registry poisoned");
+    let mut reg = ICON_HANDLES.lock().expect("icon handle registry poisoned");
     reg.get_or_insert_with(HashMap::new)
         .insert((*name).to_string(), handle);
 }
@@ -231,6 +349,5 @@ pub fn img_size(name: &str, size: f32) -> Image<'static> {
 
 /// 返回窗口图标（解码 `logo-256x256.png`）。
 pub fn window_icon() -> Option<egui::IconData> {
-    eframe::icon_data::from_png_bytes(include_bytes!("../resources/icons/logo-256x256.png"))
-        .ok()
+    eframe::icon_data::from_png_bytes(include_bytes!("../resources/icons/logo-256x256.png")).ok()
 }

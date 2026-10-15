@@ -24,9 +24,7 @@ pub fn json_to_document(value: &Value) -> RuboResult<Document> {
     let b: Bson = serde_json::from_value(value.clone())?;
     match b {
         Bson::Document(d) => Ok(d),
-        other => Err(RuboError::Parse(format!(
-            "期望文档对象，却得到: {other:?}"
-        ))),
+        other => Err(RuboError::Parse(format!("期望文档对象，却得到: {other:?}"))),
     }
 }
 
@@ -65,32 +63,40 @@ pub fn millis_to_local_str(utc_millis: i64) -> String {
 /// [`parse_document_text`] 的 `ISODate("...")` 语法原样解析回真实类型：
 /// - canonical `{"$date": {"$numberLong": "<ms>"}}`
 /// - relaxed   `{"$date": "<iso>"}`
+///
 /// 均渲染为 `ISODate("YYYY-MM-DD HH:mm:ss.sss")`（本地时区）。
 pub fn document_to_text(doc: &Document) -> RuboResult<String> {
     let mut v = document_to_json(doc)?;
-    mark_dates_in_value(&mut v);
+    let original = serde_json::to_string(&v)?;
+    let mut marker = String::from("rubo3t_date:");
+    while original.contains(&marker) {
+        marker.push('_');
+    }
+    mark_dates_in_value(&mut v, &marker);
     let pretty = serde_json::to_string_pretty(&v)?;
-    Ok(substitute_date_markers(&pretty))
+    Ok(substitute_date_markers(&pretty, &marker))
 }
 
 /// 递归地把 Value 中的扩展 JSON 日期对象替换为占位字符串（NUL 包裹毫秒数）。
 ///
 /// 之所以用占位符而非直接写入 `ISODate(...)`：后者不是合法 JSON，无法作为
 /// `serde_json::Value` 表示；先占位、序列化后再做字符串替换可绕开 JSON 转义。
-fn mark_dates_in_value(v: &mut Value) {
+fn mark_dates_in_value(v: &mut Value, marker: &str) {
     match v {
         Value::Object(map) => {
-            if let Some(ms) = extract_date_millis(map) {
-                *v = Value::String(format!("\u{0}{ms}\u{0}"));
+            if let Some(ms) =
+                extract_date_millis(map).filter(|ms| !millis_to_local_str(*ms).is_empty())
+            {
+                *v = Value::String(format!("\u{0}{marker}{ms}\u{0}"));
                 return;
             }
             for (_, child) in map.iter_mut() {
-                mark_dates_in_value(child);
+                mark_dates_in_value(child, marker);
             }
         }
         Value::Array(arr) => {
             for child in arr.iter_mut() {
-                mark_dates_in_value(child);
+                mark_dates_in_value(child, marker);
             }
         }
         _ => {}
@@ -124,14 +130,15 @@ fn extract_date_millis(map: &serde_json::Map<String, Value>) -> Option<i64> {
 ///
 /// serde_json 会把 NUL(0x00) 转义为字面量 `\u0000`，故占位符在输出里是单行、
 /// 可用固定字面量反查（避免原始 `{"$date": {...}}` 跨行难以匹配的问题）。
-fn substitute_date_markers(s: &str) -> String {
-    const OPEN: &str = "\"\\u0000";
+fn substitute_date_markers(s: &str, marker: &str) -> String {
+    let open = format!("\"\\u0000{marker}");
+    let open = open.as_str();
     const CLOSE: &str = "\\u0000\"";
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
-    while let Some(pos) = rest.find(OPEN) {
+    while let Some(pos) = rest.find(open) {
         out.push_str(&rest[..pos]);
-        let after = &rest[pos + OPEN.len()..];
+        let after = &rest[pos + open.len()..];
         let mut replaced = false;
         if let Some(end) = after.find(CLOSE) {
             let digits = &after[..end];
@@ -153,7 +160,7 @@ fn substitute_date_markers(s: &str) -> String {
         }
         if !replaced {
             // 非日期占位符（极少见）：原样保留，继续向后扫描
-            out.push_str(OPEN);
+            out.push_str(open);
             rest = after;
         }
     }
@@ -175,9 +182,9 @@ pub fn parse_pipeline_text(text: &str) -> RuboResult<Vec<Document>> {
     }
     let normalized = preprocess_date_extensions(trimmed);
     let value: Value = serde_json::from_str(&normalized)?;
-    let arr = value.as_array().ok_or_else(|| {
-        RuboError::Parse("聚合管道必须是一个 JSON 数组".to_string())
-    })?;
+    let arr = value
+        .as_array()
+        .ok_or_else(|| RuboError::Parse("聚合管道必须是一个 JSON 数组".to_string()))?;
     let mut out = Vec::new();
     for v in arr {
         out.push(json_to_document(v)?);
@@ -233,52 +240,44 @@ fn parse_isodate_to_millis(s: &str) -> Option<i64> {
 fn preprocess_date_extensions(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut rest = input;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut previous = None;
     while !rest.is_empty() {
-        if let Some(pos) = rest.find("ISODate(") {
-            // 值位置判定：前一个非空白字符必须是结构字符或文本开头
-            if !is_value_position(&rest[..pos]) {
-                out.push_str(&rest[..pos + "ISODate(".len()]);
-                rest = &rest[pos + "ISODate(".len()..];
+        let c = rest.chars().next().expect("nonempty input");
+        if !in_string && matches!(previous, None | Some('{' | '[' | ',' | ':' | '(')) {
+            let replacement = if let Some(after) = rest.strip_prefix("ISODate(") {
+                try_replace_isodate(after).map(|(text, n)| (text, n + "ISODate(".len()))
+            } else if let Some(after) = rest.strip_prefix("Timestamp(") {
+                try_replace_timestamp(after).map(|(text, n)| (text, n + "Timestamp(".len()))
+            } else {
+                None
+            };
+            if let Some((text, consumed)) = replacement {
+                out.push_str(&text);
+                rest = &rest[consumed..];
+                previous = Some(')');
                 continue;
             }
-            let after = &rest[pos + "ISODate(".len()..];
-            if let Some((repl, consumed)) = try_replace_isodate(after) {
-                out.push_str(&rest[..pos]);
-                out.push_str(&repl);
-                rest = &after[consumed..];
-            } else {
-                out.push_str(&rest[..pos + "ISODate(".len()]);
-                rest = &rest[pos + "ISODate(".len()..];
-            }
-        } else if let Some(pos) = rest.find("Timestamp(") {
-            if !is_value_position(&rest[..pos]) {
-                out.push_str(&rest[..pos + "Timestamp(".len()]);
-                rest = &rest[pos + "Timestamp(".len()..];
-                continue;
-            }
-            let after = &rest[pos + "Timestamp(".len()..];
-            if let Some((repl, consumed)) = try_replace_timestamp(after) {
-                out.push_str(&rest[..pos]);
-                out.push_str(&repl);
-                rest = &after[consumed..];
-            } else {
-                out.push_str(&rest[..pos + "Timestamp(".len()]);
-                rest = &rest[pos + "Timestamp(".len()..];
-            }
-        } else {
-            out.push_str(rest);
-            break;
         }
+        out.push(c);
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+        }
+        if !c.is_whitespace() {
+            previous = Some(c);
+        }
+        rest = &rest[c.len_utf8()..];
     }
     out
-}
-
-/// 前一个非空白字符是否为值位置（结构字符或文本开头）。
-fn is_value_position(before: &str) -> bool {
-    match before.trim_end().chars().last() {
-        None => true,
-        Some(c) => matches!(c, '{' | '[' | ',' | ':' | '('),
-    }
 }
 
 /// 尝试把 `ISODate(` 之后的内容（形如 `"<date>"`）转换为
@@ -307,12 +306,9 @@ fn try_replace_timestamp(after: &str) -> Option<(String, usize)> {
     let end = after.find(')')?;
     let inner = after[..end].trim();
     let (t_s, i_s) = inner.split_once(',')?;
-    let t_v: i64 = t_s.trim().parse().ok()?;
-    let i_v: i64 = i_s.trim().parse().ok()?;
-    if !t_s
-        .trim()
-        .bytes()
-        .all(|b| b.is_ascii_digit() || b == b'-')
+    let t_v: u32 = t_s.trim().parse().ok()?;
+    let i_v: u32 = i_s.trim().parse().ok()?;
+    if !t_s.trim().bytes().all(|b| b.is_ascii_digit() || b == b'-')
         || !i_s.trim().bytes().all(|b| b.is_ascii_digit())
     {
         return None;
@@ -325,6 +321,48 @@ fn try_replace_timestamp(after: &str) -> Option<(String, usize)> {
 mod tests {
     use super::*;
     use bson::doc;
+
+    #[test]
+    fn date_markers_do_not_change_string_values() {
+        let d = doc! {
+            "note": "\u{0}1600000000000\u{0}",
+            "marker": "rubo3t_date:",
+            "date": bson::DateTime::from_millis(1600000000000),
+            "extreme": bson::DateTime::from_millis(i64::MAX),
+        };
+        assert_eq!(
+            parse_document_text(&document_to_text(&d).unwrap()).unwrap(),
+            d
+        );
+    }
+
+    #[test]
+    fn timestamp_before_date_is_converted() {
+        let d = parse_document_text(
+            r#"{"ts": Timestamp(1, 2), "date": ISODate("2024-01-01T00:00:00Z")}"#,
+        )
+        .unwrap();
+        assert!(matches!(d.get("ts"), Some(Bson::Timestamp(_))));
+        assert!(matches!(d.get("date"), Some(Bson::DateTime(_))));
+    }
+
+    #[test]
+    fn constructor_text_inside_json_strings_is_preserved() {
+        let original = bson::doc! {"note": "example: Timestamp(1, 2), ISODate(123)"};
+        let json = serde_json::to_string(&original).unwrap();
+        assert_eq!(parse_document_text(&json).unwrap(), original);
+    }
+
+    #[test]
+    fn timestamp_rejects_out_of_range_values() {
+        for text in [
+            r#"{"t": Timestamp(-1, 0)}"#,
+            r#"{"t": Timestamp(4294967296, 0)}"#,
+            r#"{"t": Timestamp(0, 4294967296)}"#,
+        ] {
+            assert!(parse_document_text(text).is_err());
+        }
+    }
 
     #[test]
     fn roundtrip_objectid_and_date() {
@@ -348,7 +386,10 @@ mod tests {
         let text = document_to_text(&d).unwrap();
         // 展示为 ISODate("本地时间")，不再出现原始扩展 JSON
         assert!(text.contains("ISODate("), "应含 ISODate(：{text}");
-        assert!(!text.contains("$numberLong"), "不应再出现 $numberLong：{text}");
+        assert!(
+            !text.contains("$numberLong"),
+            "不应再出现 $numberLong：{text}"
+        );
         assert!(!text.contains("$date"), "不应再出现 $date：{text}");
         // 本地时间字符串形如 YYYY-MM-DD HH:mm:ss.sss
         let iso = text
@@ -356,7 +397,11 @@ mod tests {
             .nth(1)
             .and_then(|s| s.split('"').next())
             .unwrap_or_default();
-        assert_eq!(iso.len(), "2020-09-13 12:26:40.000".len(), "时间串长度不符：{iso}");
+        assert_eq!(
+            iso.len(),
+            "2020-09-13 12:26:40.000".len(),
+            "时间串长度不符：{iso}"
+        );
         // 往返：解析回来仍是同一 DateTime（时区无关，因格式与解析都用本地时区）
         let parsed = parse_document_text(&text).unwrap();
         assert_eq!(d, parsed);
@@ -364,7 +409,8 @@ mod tests {
 
     #[test]
     fn parse_extended_json() {
-        let text = r#"{"_id": {"$oid": "507f1f77bcf86cd799439011"}, "amt": {"$numberDecimal": "123.45"}}"#;
+        let text =
+            r#"{"_id": {"$oid": "507f1f77bcf86cd799439011"}, "amt": {"$numberDecimal": "123.45"}}"#;
         let d = parse_document_text(text).unwrap();
         assert!(matches!(d.get("_id"), Some(bson::Bson::ObjectId(_))));
         assert!(matches!(d.get("amt"), Some(bson::Bson::Decimal128(_))));

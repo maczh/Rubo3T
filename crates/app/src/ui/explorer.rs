@@ -17,6 +17,8 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     SidePanel::left("explorer")
         .resizable(true)
         .default_width(240.0)
+        .min_width(160.0)
+        .max_width(420.0)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.strong(lang.tr("explorer.title"));
@@ -31,129 +33,188 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                     // 服务器节点（前加 server 图标）
                     ui.horizontal(|ui| {
                         ui.add(icons::img("server_16x16").fit_to_original_size(1.0));
-                        CollapsingHeader::new(format!("{} ({})", state.active_name, state.databases.len()))
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                for db in &databases {
-                                    let is_expanded =
-                                        *state.expanded_dbs.get(&db.name).unwrap_or(&false);
-                                    let header_text = if is_expanded {
-                                        format!("▾ {}", db.name)
-                                    } else {
-                                        format!("▸ {}", db.name)
-                                    };
-                                    // 数据库节点（前加 database 图标）
-                                    let db_response = ui
-                                        .horizontal(|ui| {
-                                            ui.add(
-                                                icons::img("database_16x16")
-                                                    .fit_to_original_size(1.0),
-                                            );
-                                            CollapsingHeader::new(&header_text)
-                                                .id_salt(format!("db_{}", db.name))
-                                                .default_open(is_expanded)
-                                                .show(ui, |ui| {
-                                                    if let Some(cols) =
-                                                        collections.get(&db.name)
-                                                    {
-                                                        if cols.is_empty() {
-                                                            ui.label(lang.tr(
-                                                                "explorer.no_collections",
+                        CollapsingHeader::new(format!(
+                            "{} ({})",
+                            state.active_name,
+                            state.databases.len()
+                        ))
+                        .id_salt(("server", &state.active_name))
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            for db in &databases {
+                                let is_expanded =
+                                    *state.expanded_dbs.get(&db.name).unwrap_or(&false);
+                                let header_text = if is_expanded {
+                                    format!("▾ {}", db.name)
+                                } else {
+                                    format!("▸ {}", db.name)
+                                };
+                                // 数据库节点（前加 database 图标）
+                                let db_response = ui
+                                    .horizontal(|ui| {
+                                        ui.add(
+                                            icons::img("database_16x16").fit_to_original_size(1.0),
+                                        );
+                                        CollapsingHeader::new(&header_text)
+                                            .id_salt(format!("db_{}", db.name))
+                                            .default_open(is_expanded)
+                                            .show(ui, |ui| {
+                                                if let Some(cols) = collections.get(&db.name) {
+                                                    if cols.is_empty() {
+                                                        ui.label(
+                                                            lang.tr("explorer.no_collections"),
+                                                        );
+                                                    }
+                                                    for c in cols {
+                                                        // 集合节点（前加 collection 图标，保留原有点击行为）
+                                                        let label = c.name.clone();
+                                                        let r = ui
+                                                            .horizontal(|ui| {
+                                                                ui.add(
+                                                                    icons::img("collection_16x16")
+                                                                        .fit_to_original_size(1.0),
+                                                                );
+                                                                ui.selectable_label(
+                                                                    state
+                                                                        .current_collection()
+                                                                        .as_ref()
+                                                                        .is_some_and(
+                                                                            |(d, coll)| {
+                                                                                d == &db.name
+                                                                                    && coll
+                                                                                        == &c.name
+                                                                            },
+                                                                        ),
+                                                                    label,
+                                                                )
+                                                            })
+                                                            .inner;
+                                                        if r.clicked() {
+                                                            clicked = Some((
+                                                                db.name.clone(),
+                                                                c.name.clone(),
                                                             ));
                                                         }
-                                                        for c in cols {
-                                                            // 集合节点（前加 collection 图标，保留原有点击行为）
-                                                            let label = c.name.clone();
-                                                            let r = ui
-                                                                .horizontal(|ui| {
-                                                                    ui.add(
-                                                                        icons::img(
-                                                                            "collection_16x16",
-                                                                        )
-                                                                        .fit_to_original_size(1.0),
-                                                                    );
-                                                                    ui.selectable_label(false, label)
-                                                                })
-                                                                .inner;
-                                                            if r.clicked() {
-                                                                clicked = Some((
-                                                                    db.name.clone(),
-                                                                    c.name.clone(),
-                                                                ));
+                                                        r.context_menu(|ui| {
+                                                            let (dbn, cn) =
+                                                                (db.name.clone(), c.name.clone());
+                                                            if ui
+                                                                .button(
+                                                                    lang.tr(
+                                                                        "explorer.ctx.view_doc",
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                state.select_collection(&dbn, &cn);
+                                                                ui.close_menu();
                                                             }
-                                                            r.context_menu(|ui| {
-                                                                let (dbn, cn) = (db.name.clone(), c.name.clone());
-                                                                if ui.button(lang.tr("explorer.ctx.view_doc")).clicked() {
-                                                                    state.select_collection(&dbn, &cn);
-                                                                    ui.close_menu();
-                                                                }
-                                                                if ui.button(lang.tr("explorer.ctx.insert_doc")).clicked() {
-                                                                    state.start_insert_document(dbn.clone(), cn.clone());
-                                                                    ui.close_menu();
-                                                                }
-                                                                if ui.button(lang.tr("explorer.ctx.rename_coll")).clicked() {
-                                                                    state.request_rename_collection(dbn.clone(), cn.clone());
-                                                                    ui.close_menu();
-                                                                }
-                                                                if ui.button(lang.tr("explorer.ctx.open_shell")).clicked() {
-                                                                    state.run_shell();
-                                                                    ui.close_menu();
-                                                                }
-                                                                if ui.button(lang.tr("dialog.indexes")).clicked() {
-                                                                    state.open_indexes_dialog(&dbn, &cn);
-                                                                    ui.close_menu();
-                                                                }
-                                                                if ui.button(lang.tr("explorer.ctx.drop_coll")).clicked() {
-                                                                    state.request_drop_collection(dbn.clone(), cn.clone());
-                                                                    ui.close_menu();
-                                                                }
-                                                            });
-                                                        }
-                                                    } else {
-                                                        ui.label(lang.tr(
-                                                            "explorer.no_collections",
-                                                        ));
+                                                            if ui
+                                                                .button(
+                                                                    lang.tr(
+                                                                        "explorer.ctx.insert_doc",
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                state.start_insert_document(
+                                                                    dbn.clone(),
+                                                                    cn.clone(),
+                                                                );
+                                                                ui.close_menu();
+                                                            }
+                                                            if ui
+                                                                .button(
+                                                                    lang.tr(
+                                                                        "explorer.ctx.rename_coll",
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                state.request_rename_collection(
+                                                                    dbn.clone(),
+                                                                    cn.clone(),
+                                                                );
+                                                                ui.close_menu();
+                                                            }
+                                                            if ui
+                                                                .button(
+                                                                    lang.tr(
+                                                                        "explorer.ctx.open_shell",
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                state.run_shell();
+                                                                ui.close_menu();
+                                                            }
+                                                            if ui
+                                                                .button(lang.tr("dialog.indexes"))
+                                                                .clicked()
+                                                            {
+                                                                state
+                                                                    .open_indexes_dialog(&dbn, &cn);
+                                                                ui.close_menu();
+                                                            }
+                                                            if ui
+                                                                .button(
+                                                                    lang.tr(
+                                                                        "explorer.ctx.drop_coll",
+                                                                    ),
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                state.request_drop_collection(
+                                                                    dbn.clone(),
+                                                                    cn.clone(),
+                                                                );
+                                                                ui.close_menu();
+                                                            }
+                                                        });
                                                     }
-                                                })
-                                        })
-                                        .inner;
-                                    if db_response.header_response.clicked() {
-                                        expand_db = db.name.clone();
-                                    }
-                                    // 数据库节点右键菜单：索引 / 用户（只读弹窗）
-                                    db_response.header_response.context_menu(|ui| {
-                                        if ui.button(lang.tr("common.refresh")).clicked() {
-                                            state.load_collections(&db.name);
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(lang.tr("explorer.ctx.add_coll")).clicked() {
-                                            state.request_create_collection(db.name.clone());
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(lang.tr("explorer.ctx.open_shell")).clicked() {
-                                            state.run_shell();
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(lang.tr("explorer.ctx.drop_db")).clicked() {
-                                            state.request_drop_database(db.name.clone());
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(lang.tr("dialog.indexes")).clicked() {
-                                            let coll = collections
-                                                .get(&db.name)
-                                                .and_then(|c| c.first())
-                                                .map(|c| c.name.clone())
-                                                .unwrap_or_default();
-                                            state.open_indexes_dialog(&db.name, &coll);
-                                            ui.close_menu();
-                                        }
-                                        if ui.button(lang.tr("dialog.users")).clicked() {
-                                            state.open_users_dialog(&db.name);
-                                            ui.close_menu();
-                                        }
-                                    });
+                                                } else {
+                                                    ui.label(lang.tr("explorer.no_collections"));
+                                                }
+                                            })
+                                    })
+                                    .inner;
+                                if db_response.header_response.clicked() {
+                                    expand_db = db.name.clone();
                                 }
-                            });
+                                // 数据库节点右键菜单：索引 / 用户（只读弹窗）
+                                db_response.header_response.context_menu(|ui| {
+                                    if ui.button(lang.tr("common.refresh")).clicked() {
+                                        state.load_collections(&db.name);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(lang.tr("explorer.ctx.add_coll")).clicked() {
+                                        state.request_create_collection(db.name.clone());
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(lang.tr("explorer.ctx.open_shell")).clicked() {
+                                        state.run_shell();
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(lang.tr("explorer.ctx.drop_db")).clicked() {
+                                        state.request_drop_database(db.name.clone());
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(lang.tr("dialog.indexes")).clicked() {
+                                        let coll = collections
+                                            .get(&db.name)
+                                            .and_then(|c| c.first())
+                                            .map(|c| c.name.clone())
+                                            .unwrap_or_default();
+                                        state.open_indexes_dialog(&db.name, &coll);
+                                        ui.close_menu();
+                                    }
+                                    if ui.button(lang.tr("dialog.users")).clicked() {
+                                        state.open_users_dialog(&db.name);
+                                        ui.close_menu();
+                                    }
+                                });
+                            }
+                        });
                     });
                 }
             });

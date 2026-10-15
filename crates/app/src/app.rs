@@ -28,17 +28,6 @@ pub enum ViewMode {
     Custom,
 }
 
-impl ViewMode {
-    pub fn label(self, lang: Lang) -> &'static str {
-        match self {
-            ViewMode::Table => lang.tr("view.table"),
-            ViewMode::Tree => lang.tr("view.tree"),
-            ViewMode::Text => lang.tr("view.text"),
-            ViewMode::Custom => lang.tr("view.custom"),
-        }
-    }
-}
-
 /// 点击左侧集合名打开标签时，默认查询的排序方式。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum DefaultSort {
@@ -67,14 +56,6 @@ impl DefaultSort {
             DefaultSort::None => "{}",
             DefaultSort::IdAsc => "{\"_id\": 1}",
             DefaultSort::IdDesc => "{\"_id\": -1}",
-        }
-    }
-
-    pub fn label(self, lang: Lang) -> &'static str {
-        match self {
-            DefaultSort::None => lang.tr("sort.none"),
-            DefaultSort::IdAsc => lang.tr("sort.id_asc"),
-            DefaultSort::IdDesc => lang.tr("sort.id_desc"),
         }
     }
 }
@@ -243,7 +224,15 @@ impl Default for FindState {
     }
 }
 
+struct PendingQuery {
+    tab_id: usize,
+    receiver: std::sync::mpsc::Receiver<(rubo3t_core::error::RuboResult<Vec<Document>>, u64)>,
+    task: tokio::task::JoinHandle<()>,
+}
+
 pub struct AppState {
+    pending_query: Option<PendingQuery>,
+    repaint_ctx: Option<egui::Context>,
     pub rt: tokio::runtime::Runtime,
     pub connections_path: PathBuf,
     pub settings_path: PathBuf,
@@ -296,7 +285,6 @@ pub struct AppState {
     pub current_query_msg: String,
 
     // 能力面板
-    pub show_caps: bool,
 
     // 文档查看弹窗
     pub view_doc_open: bool,
@@ -367,8 +355,6 @@ pub struct AppState {
     pub confirm_remove_idx: Option<usize>,
 
     // 右键菜单状态
-    pub context_doc_idx: Option<usize>,
-    pub context_menu_pos: Option<egui::Pos2>,
 
     // 索引/用户
     pub indexes: Vec<IndexInfo>,
@@ -389,7 +375,6 @@ pub struct AppState {
     pub toast_msg: Option<(String, bool)>,
 
     // 选项菜单
-    pub options_menu_open: bool,
 
     // 图标是否已在 egui 上下文注册（每帧 update 开头注册一次）
     pub icon_registered: bool,
@@ -421,7 +406,9 @@ pub struct AppSettings {
 
 impl serde::Serialize for ViewMode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         serializer.serialize_str(match self {
             ViewMode::Table => "table",
             ViewMode::Tree => "tree",
@@ -433,7 +420,9 @@ impl serde::Serialize for ViewMode {
 
 impl<'de> serde::Deserialize<'de> for ViewMode {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
         Ok(match s.as_str() {
             "tree" => ViewMode::Tree,
@@ -449,6 +438,13 @@ impl AppState {
         let config_dir = dirs::config_dir()
             .map(|p| p.join("Rubo3T"))
             .unwrap_or_else(|| PathBuf::from("Rubo3T"));
+        crate::font::load_cjk_fonts(&cc.egui_ctx);
+        let mut state = Self::from_config_dir(config_dir);
+        state.repaint_ctx = Some(cc.egui_ctx.clone());
+        state
+    }
+
+    fn from_config_dir(config_dir: PathBuf) -> Self {
         let _ = std::fs::create_dir_all(&config_dir);
         let connections_path = config_dir.join("connections.json");
         let settings_path = config_dir.join("settings.json");
@@ -460,9 +456,9 @@ impl AppState {
             .build()
             .expect("无法创建 tokio 运行时");
 
-        crate::font::load_cjk_fonts(&cc.egui_ctx);
-
         let mut state = Self {
+            pending_query: None,
+            repaint_ctx: None,
             rt,
             connections_path,
             settings_path,
@@ -497,7 +493,6 @@ impl AppState {
             selected_doc_text: String::new(),
             current_view_mode: app_settings.view_mode,
             current_query_msg: String::new(),
-            show_caps: false,
             view_doc_open: false,
             view_doc_title: String::new(),
             view_doc_text: String::new(),
@@ -549,8 +544,6 @@ impl AppState {
             browse_target: 0,
             browse_path: String::new(),
             confirm_remove_idx: None,
-            context_doc_idx: None,
-            context_menu_pos: None,
             indexes: Vec::new(),
             users: Vec::new(),
             shell_input: "{\"buildInfo\": 1}".to_string(),
@@ -560,7 +553,6 @@ impl AppState {
             show_logs: true,
             ssh_log_sink: Arc::new(Mutex::new(Vec::new())),
             toast_msg: None,
-            options_menu_open: false,
             icon_registered: false,
             find: FindState::default(),
         };
@@ -652,7 +644,7 @@ impl AppState {
     // ----- 连接管理 -----
 
     pub fn connect(&mut self, mut settings: ConnectionSettings) {
-        self.tunnel = None;
+        let mut new_tunnel = None;
         if settings.ssh.enabled {
             // 隧道转发目标 = MongoDB 真实服务器地址（从跳板机可达），即连接设置中的 hosts[0]。
             // 本地 127.0.0.1:local_port 仅作入口，由 build_uri 改写为转发端口。
@@ -661,7 +653,7 @@ impl AppState {
                 None => (settings.ssh.remote_host.clone(), settings.ssh.remote_port),
             };
             match Tunnel::start_with_logger(&settings.ssh, fw_host, fw_port, self.ssh_logger()) {
-                Ok(t) => self.tunnel = Some(t),
+                Ok(t) => new_tunnel = Some(t),
                 Err(e) => {
                     self.drain_ssh_logs();
                     self.toast(&trf(self.lang, "msg.ssh_failed", &[&e.to_string()]), true);
@@ -669,12 +661,14 @@ impl AppState {
                 }
             }
         }
-        if let Some(t) = &self.tunnel {
+        if let Some(t) = &new_tunnel {
             settings.ssh.local_port = t.local_port();
         }
         match self.rt.block_on(MongoService::connect(&settings)) {
             Ok(svc) => {
                 let info = svc.server_info().cloned();
+                self.disconnect();
+                self.tunnel = new_tunnel;
                 self.service = Some(svc);
                 self.server_info = info.clone();
                 self.active_name = settings.name.clone();
@@ -687,7 +681,7 @@ impl AppState {
                     "msg.connected",
                     &[settings.name.as_str(), version_str.as_str()],
                 ));
-                self.log(&trf(
+                self.log(trf(
                     self.lang,
                     "msg.connected",
                     &[&settings.name, &version_str],
@@ -696,14 +690,17 @@ impl AppState {
                 // 打开第一个数据库的欢迎标签页
                 if self.tabs.is_empty() {
                     self.tabs.push(QueryTab::new(self.next_tab_id, "", ""));
+                    self.next_tab_id += 1;
                     self.active_tab = 0;
                 }
             }
             Err(e) => {
-                self.tunnel = None;
-                self.toast(&trf(self.lang, "msg.connect_failed", &[&e.to_string()]), true);
+                self.toast(
+                    &trf(self.lang, "msg.connect_failed", &[&e.to_string()]),
+                    true,
+                );
                 self.status(&trf(self.lang, "msg.connect_failed", &[&e.to_string()]));
-                self.log(&trf(self.lang, "msg.connect_failed", &[&e.to_string()]));
+                self.log(trf(self.lang, "msg.connect_failed", &[&e.to_string()]));
             }
         }
     }
@@ -759,6 +756,7 @@ impl AppState {
     }
 
     pub fn disconnect(&mut self) {
+        self.stop_query();
         self.service = None;
         self.tunnel = None;
         self.server_info = None;
@@ -797,7 +795,10 @@ impl AppState {
                         self.load_collections(name);
                     }
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.load_dbs_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.load_dbs_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -808,7 +809,10 @@ impl AppState {
                 Ok(cols) => {
                     self.collections.insert(db.to_string(), cols);
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.load_colls_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.load_colls_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -858,10 +862,10 @@ impl AppState {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.filter = self.filter_text.clone();
             tab.sort = self.sort_text.clone();
+            tab.dirty |= tab.script != self.script_text || tab.agg_text != self.agg_text;
             tab.script = self.script_text.clone();
             tab.query_mode = self.query_mode;
             tab.agg_text = self.agg_text.clone();
-            tab.dirty = tab.dirty || tab.script != self.script_text;
             tab.limit = self.limit;
             tab.skip = self.skip;
             tab.documents = self.documents.clone();
@@ -882,6 +886,8 @@ impl AppState {
             self.agg_text = tab.agg_text.clone();
             self.limit = tab.limit;
             self.skip = tab.skip;
+            self.skip_input = tab.skip.to_string();
+            self.batch_input = tab.limit.to_string();
             self.documents = tab.documents.clone();
             self.selected_doc = tab.selected_doc;
             self.selected_doc_text = tab.doc_text.clone();
@@ -918,11 +924,19 @@ impl AppState {
         };
         self.limit = parsed.limit;
         self.skip = parsed.skip;
+        self.skip_input = self.skip.to_string();
+        self.batch_input = self.limit.to_string();
         let query_script = self.script_text.trim().to_string();
         self.log_query_script(&query_script);
-        self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
+        self.execute_query(
+            &db,
+            &coll,
+            &parsed.filter,
+            &parsed.sort,
+            self.limit,
+            self.skip,
+        );
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            tab.dirty = false;
             tab.limit = self.limit;
             tab.skip = self.skip;
             tab.coll = coll;
@@ -967,7 +981,17 @@ impl AppState {
         };
         let query_script = self.script_text.trim().to_string();
         self.log_query_script(&query_script);
-        self.execute_query(&db, &coll, &parsed.filter, &parsed.sort, self.limit, self.skip);
+        self.execute_query(
+            &db,
+            &coll,
+            &parsed.filter,
+            &parsed.sort,
+            self.limit,
+            self.skip,
+        );
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.coll = coll;
+        }
     }
 
     /// 以聚合管道模式执行：解析 agg_text 为 JSON 数组管道并运行，结果回填 documents。
@@ -990,11 +1014,7 @@ impl AppState {
         let pipeline = match bson_ext::parse_pipeline_text(text) {
             Ok(p) => p,
             Err(e) => {
-                self.report_execution_error(format!(
-                    "{}: {}",
-                    self.lang.tr("agg.parse_failed"),
-                    e
-                ));
+                self.report_execution_error(format!("{}: {}", self.lang.tr("agg.parse_failed"), e));
                 return;
             }
         };
@@ -1003,40 +1023,11 @@ impl AppState {
             coll.replace('\\', "\\\\").replace('\'', "\\'"),
             text
         ));
-        if let Some(svc) = &self.service {
-            let start = std::time::Instant::now();
-            match self.rt.block_on(svc.aggregate(&db, &coll, &pipeline)) {
-                Ok(docs) => {
-                    self.documents = docs;
-                    self.selected_doc = None;
-                    self.selected_doc_text.clear();
-                    let elapsed = start.elapsed().as_millis() as u64;
-                    self.status(&trf(
-                        self.lang,
-                        "msg.query_returned",
-                        &[&self.documents.len().to_string()],
-                    ));
-                    self.log(&format!(
-                        "{}: {} docs, {} ms",
-                        self.lang.tr("agg.title"),
-                        self.documents.len(),
-                        elapsed
-                    ));
-                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-                        tab.documents = self.documents.clone();
-                        tab.query_time_ms = elapsed;
-                    }
-                }
-                Err(e) => self.report_execution_error(format!(
-                    "{}: {}",
-                    self.lang.tr("agg.failed"),
-                    e
-                )),
-            }
+        if let Some(svc) = self.service.clone() {
+            self.spawn_query(async move { svc.aggregate(&db, &coll, &pipeline).await });
         } else {
             self.report_execution_error(self.lang.tr("msg.disconnected"));
         }
-        self.sync_to_active_tab();
     }
 
     fn report_execution_error(&mut self, message: impl Into<String>) {
@@ -1055,43 +1046,100 @@ impl AppState {
         limit: u64,
         skip: u64,
     ) {
-        if let Some(svc) = &self.service {
-            let start = std::time::Instant::now();
-            match self
-                .rt
-                .block_on(svc.find(db, coll, filter, sort, limit, skip))
-            {
-                Ok(docs) => {
-                    self.documents = docs;
-                    self.selected_doc = None;
-                    self.selected_doc_text.clear();
-                    let elapsed = start.elapsed().as_millis() as u64;
-                    self.status(&trf(
-                        self.lang,
-                        "msg.query_returned",
-                        &[&self.documents.len().to_string()],
-                    ));
-                    self.log(&format!(
-                        "{}: {} docs, {} ms",
-                        self.lang.tr("query.run"),
-                        self.documents.len(),
-                        elapsed
-                    ));
-                    if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-                        tab.documents = self.documents.clone();
-                        tab.query_time_ms = elapsed;
-                    }
-                }
-                Err(e) => self.report_execution_error(trf(
-                    self.lang,
-                    "msg.query_failed",
-                    &[&e.to_string()],
-                )),
-            }
+        if let Some(svc) = self.service.clone() {
+            let (db, coll, filter, sort) =
+                (db.to_owned(), coll.to_owned(), filter.clone(), sort.clone());
+            self.spawn_query(
+                async move { svc.find(&db, &coll, &filter, &sort, limit, skip).await },
+            );
         } else {
             self.report_execution_error(self.lang.tr("msg.disconnected"));
         }
+    }
+
+    fn spawn_query(
+        &mut self,
+        query: impl std::future::Future<Output = rubo3t_core::error::RuboResult<Vec<Document>>>
+            + Send
+            + 'static,
+    ) {
+        self.stop_query();
         self.sync_to_active_tab();
+        let Some(tab_id) = self.tabs.get(self.active_tab).map(|tab| tab.id) else {
+            return;
+        };
+        self.documents.clear();
+        self.selected_doc = None;
+        self.selected_doc_text.clear();
+        self.current_query_msg.clear();
+        self.sync_to_active_tab();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let ctx = self.repaint_ctx.clone();
+        let task = self.rt.spawn(async move {
+            let start = std::time::Instant::now();
+            let result = query.await;
+            let _ = sender.send((result, start.elapsed().as_millis() as u64));
+            if let Some(ctx) = ctx {
+                ctx.request_repaint();
+            }
+        });
+        self.pending_query = Some(PendingQuery {
+            tab_id,
+            receiver,
+            task,
+        });
+    }
+
+    pub fn query_running(&self) -> bool {
+        self.pending_query.is_some()
+    }
+
+    pub fn stop_query(&mut self) {
+        if let Some(pending) = self.pending_query.take() {
+            pending.task.abort();
+        }
+    }
+
+    pub fn poll_query(&mut self) {
+        let Some(pending) = &self.pending_query else {
+            return;
+        };
+        let result = match pending.receiver.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.pending_query = None;
+                self.report_execution_error("Query task ended without a result");
+                return;
+            }
+        };
+        let tab_id = pending.tab_id;
+        self.pending_query = None;
+        self.sync_to_active_tab();
+        let Some(index) = self.tabs.iter().position(|tab| tab.id == tab_id) else {
+            return;
+        };
+        let (result, elapsed) = result;
+        match result {
+            Ok(docs) => {
+                let message = trf(self.lang, "msg.query_returned", &[&docs.len().to_string()]);
+                let tab = &mut self.tabs[index];
+                tab.documents = docs;
+                tab.selected_doc = None;
+                tab.doc_text.clear();
+                tab.query_time_ms = elapsed;
+                tab.query_msg = message.clone();
+                self.log(format!("{message}, {elapsed} ms"));
+            }
+            Err(error) => {
+                let message = trf(self.lang, "msg.query_failed", &[&error.to_string()]);
+                self.tabs[index].query_msg = message.clone();
+                self.log_error(message);
+            }
+        }
+        if index == self.active_tab {
+            self.sync_from_active_tab();
+        }
     }
 
     pub fn current_collection(&self) -> Option<(String, String)> {
@@ -1108,7 +1156,10 @@ impl AppState {
         if let Some(doc) = self.documents.get(i) {
             match bson_ext::document_to_text(doc) {
                 Ok(t) => self.selected_doc_text = t,
-                Err(e) => self.toast(&trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
             self.selected_doc = Some(i);
         }
@@ -1122,7 +1173,10 @@ impl AppState {
                     self.view_doc_text = t;
                     self.view_doc_open = true;
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1162,7 +1216,10 @@ impl AppState {
                     self.toast(self.lang.tr("doc.saved"), false);
                     self.run_query();
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.save_doc_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.save_doc_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1193,25 +1250,35 @@ impl AppState {
                     self.toast(self.lang.tr("doc.deleted"), false);
                     self.run_query();
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.delete_doc_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.delete_doc_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
 
     /// 导出文档到 JSON 文件（单个或全部结果）。使用扩展 JSON 以便 ObjectId/日期等原样往返。
     pub fn export_documents(&mut self, path: &str, docs: &[Document]) {
-        let parts: Vec<String> = docs
-            .iter()
-            .filter_map(|d| rubo3t_core::bson_ext::document_to_text(d).ok())
-            .collect();
-        let body = parts.join(",\n");
-        let json = format!("[\n{body}\n]");
+        let json = match documents_to_export_json(docs) {
+            Ok(json) => json,
+            Err(e) => {
+                self.toast(
+                    &trf(self.lang, "doc.export_failed", &[&e.to_string()]),
+                    true,
+                );
+                return;
+            }
+        };
         match std::fs::write(path, json) {
             Ok(_) => self.toast(
                 &trf(self.lang, "doc.export_ok", &[&docs.len().to_string(), path]),
                 false,
             ),
-            Err(e) => self.toast(&trf(self.lang, "doc.export_failed", &[&e.to_string()]), true),
+            Err(e) => self.toast(
+                &trf(self.lang, "doc.export_failed", &[&e.to_string()]),
+                true,
+            ),
         }
     }
 
@@ -1227,7 +1294,10 @@ impl AppState {
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) => {
-                self.toast(&trf(self.lang, "doc.import_failed", &[&e.to_string()]), true);
+                self.toast(
+                    &trf(self.lang, "doc.import_failed", &[&e.to_string()]),
+                    true,
+                );
                 return;
             }
         };
@@ -1237,7 +1307,10 @@ impl AppState {
             Err(_) => match rubo3t_core::bson_ext::parse_document_text(text.trim()) {
                 Ok(d) => vec![d],
                 Err(e) => {
-                    self.toast(&trf(self.lang, "doc.import_failed", &[&e.to_string()]), true);
+                    self.toast(
+                        &trf(self.lang, "doc.import_failed", &[&e.to_string()]),
+                        true,
+                    );
                     return;
                 }
             },
@@ -1253,7 +1326,10 @@ impl AppState {
                     ok_count += 1;
                 }
             }
-            self.toast(&trf(self.lang, "doc.import_ok", &[&ok_count.to_string()]), false);
+            self.toast(
+                &trf(self.lang, "doc.import_ok", &[&ok_count.to_string()]),
+                false,
+            );
             self.run_query();
         }
     }
@@ -1279,7 +1355,10 @@ impl AppState {
                     self.toast(self.lang.tr("doc.inserted"), false);
                     self.run_query();
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.insert_doc_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.insert_doc_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1293,7 +1372,9 @@ impl AppState {
             }
         };
         let db = if self.shell_db.is_empty() {
-            self.current_collection().map(|(d, _)| d).unwrap_or_else(|| "admin".into())
+            self.current_collection()
+                .map(|(d, _)| d)
+                .unwrap_or_else(|| "admin".into())
         } else {
             self.shell_db.clone()
         };
@@ -1301,41 +1382,12 @@ impl AppState {
             match self.rt.block_on(svc.run_command(&db, &cmd)) {
                 Ok(res) => match bson_ext::document_to_text(&res) {
                     Ok(t) => self.shell_output = t,
-                    Err(e) => self.shell_output = trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()]),
+                    Err(e) => {
+                        self.shell_output =
+                            trf(self.lang, "msg.doc_convert_failed", &[&e.to_string()])
+                    }
                 },
                 Err(e) => self.shell_output = trf(self.lang, "msg.query_failed", &[&e.to_string()]),
-            }
-        }
-    }
-
-    pub fn load_indexes(&mut self) {
-        let (db, coll) = match self.current_collection() {
-            Some(x) => x,
-            None => {
-                self.toast(self.lang.tr("msg.select_collection_first"), true);
-                return;
-            }
-        };
-        if let Some(svc) = &self.service {
-            match self.rt.block_on(svc.list_indexes(&db, &coll)) {
-                Ok(i) => self.indexes = i,
-                Err(e) => self.toast(&trf(self.lang, "index.load_failed", &[&e.to_string()]), true),
-            }
-        }
-    }
-
-    pub fn load_users(&mut self) {
-        let db = match self.current_collection().map(|(d, _)| d) {
-            Some(d) => d,
-            None => {
-                self.toast(self.lang.tr("msg.select_collection_first"), true);
-                return;
-            }
-        };
-        if let Some(svc) = &self.service {
-            match self.rt.block_on(svc.list_users(&db)) {
-                Ok(u) => self.users = u,
-                Err(e) => self.toast(&trf(self.lang, "user.load_failed", &[&e.to_string()]), true),
             }
         }
     }
@@ -1348,7 +1400,10 @@ impl AppState {
         if let Some(svc) = &self.service {
             match self.rt.block_on(svc.list_indexes(db, coll)) {
                 Ok(i) => self.indexes = i,
-                Err(e) => self.toast(&trf(self.lang, "index.load_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "index.load_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1374,14 +1429,24 @@ impl AppState {
             };
             doc.insert(field.to_string(), dir);
         }
-        if doc.is_empty() { None } else { Some(doc) }
+        if doc.is_empty() {
+            None
+        } else {
+            Some(doc)
+        }
     }
 
     pub fn reload_indexes(&mut self) {
         if let Some(svc) = &self.service {
-            match self.rt.block_on(svc.list_indexes(&self.indexes_dlg_db, &self.indexes_dlg_coll)) {
+            match self
+                .rt
+                .block_on(svc.list_indexes(&self.indexes_dlg_db, &self.indexes_dlg_coll))
+            {
                 Ok(i) => self.indexes = i,
-                Err(e) => self.toast(&trf(self.lang, "index.load_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "index.load_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1390,13 +1455,23 @@ impl AppState {
         match Self::parse_index_keys(keys_str) {
             Some(keys) => {
                 if let Some(svc) = &self.service {
-                    let nm = if name.trim().is_empty() { None } else { Some(name.trim().to_string()) };
-                    match self.rt.block_on(svc.create_index(db, coll, &keys, nm, unique)) {
+                    let nm = if name.trim().is_empty() {
+                        None
+                    } else {
+                        Some(name.trim().to_string())
+                    };
+                    match self
+                        .rt
+                        .block_on(svc.create_index(db, coll, &keys, nm, unique))
+                    {
                         Ok(_) => {
                             self.reload_indexes();
                             self.toast(&trf(self.lang, "index.created", &[]), false);
                         }
-                        Err(e) => self.toast(&trf(self.lang, "index.create_failed", &[&e.to_string()]), true),
+                        Err(e) => self.toast(
+                            &trf(self.lang, "index.create_failed", &[&e.to_string()]),
+                            true,
+                        ),
                     }
                 }
             }
@@ -1411,7 +1486,10 @@ impl AppState {
                     self.reload_indexes();
                     self.toast(&trf(self.lang, "index.dropped", &[]), false);
                 }
-                Err(e) => self.toast(&trf(self.lang, "index.drop_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "index.drop_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1442,7 +1520,10 @@ impl AppState {
                     self.reload_users();
                     self.toast(&trf(self.lang, "user.created", &[name]), false);
                 }
-                Err(e) => self.toast(&trf(self.lang, "user.create_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "user.create_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1479,32 +1560,59 @@ impl AppState {
                     self.reload_users();
                     self.toast(&trf(self.lang, "user.updated", &[name]), false);
                 }
-                Err(e) => self.toast(&trf(self.lang, "user.update_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "user.update_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
 
     /// 编辑索引：MongoDB 不支持就地修改索引，采用「先删旧、后建新」。
-    pub fn edit_index(&mut self, db: &str, coll: &str, old_name: &str, keys_str: &str, name: &str, unique: bool) {
+    pub fn edit_index(
+        &mut self,
+        db: &str,
+        coll: &str,
+        old_name: &str,
+        keys_str: &str,
+        name: &str,
+        unique: bool,
+    ) {
         let keys = match rubo3t_core::bson_ext::parse_filter_text(keys_str) {
             Ok(k) => k,
             Err(e) => {
-                self.toast(&trf(self.lang, "index.parse_failed", &[&e.to_string()]), true);
+                self.toast(
+                    &trf(self.lang, "index.parse_failed", &[&e.to_string()]),
+                    true,
+                );
                 return;
             }
         };
-        let nm = if name.is_empty() { None } else { Some(name.to_string()) };
+        let nm = if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        };
         if let Some(svc) = &self.service {
             if let Err(e) = self.rt.block_on(svc.drop_index(db, coll, old_name)) {
-                self.toast(&trf(self.lang, "index.update_failed", &[&e.to_string()]), true);
+                self.toast(
+                    &trf(self.lang, "index.update_failed", &[&e.to_string()]),
+                    true,
+                );
                 return;
             }
-            match self.rt.block_on(svc.create_index(db, coll, &keys, nm, unique)) {
+            match self
+                .rt
+                .block_on(svc.create_index(db, coll, &keys, nm, unique))
+            {
                 Ok(_) => {
                     self.reload_indexes();
                     self.toast(&trf(self.lang, "index.updated", &[name]), false);
                 }
-                Err(e) => self.toast(&trf(self.lang, "index.update_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "index.update_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1542,7 +1650,10 @@ impl AppState {
                     self.load_collections(db);
                     self.toast(&trf(self.lang, "msg.coll_created", &[name]), false);
                 }
-                Err(e) => self.toast(&trf(self.lang, "msg.coll_create_failed", &[&e.to_string()]), true),
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.coll_create_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1556,13 +1667,18 @@ impl AppState {
                         Ok(_) => {
                             self.load_collections(&db);
                             self.toast(
-                                &trf(self.lang, "msg.coll_dropped", &[&format!("{}.{}", db, coll)]),
+                                &trf(
+                                    self.lang,
+                                    "msg.coll_dropped",
+                                    &[&format!("{}.{}", db, coll)],
+                                ),
                                 false,
                             );
                         }
-                        Err(e) => {
-                            self.toast(&trf(self.lang, "msg.coll_drop_failed", &[&e.to_string()]), true)
-                        }
+                        Err(e) => self.toast(
+                            &trf(self.lang, "msg.coll_drop_failed", &[&e.to_string()]),
+                            true,
+                        ),
                     }
                 }
                 ExplorerAction::DropDatabase(db) => {
@@ -1571,9 +1687,10 @@ impl AppState {
                             self.load_databases();
                             self.toast(&trf(self.lang, "msg.db_dropped", &[&db]), false);
                         }
-                        Err(e) => {
-                            self.toast(&trf(self.lang, "msg.db_drop_failed", &[&e.to_string()]), true)
-                        }
+                        Err(e) => self.toast(
+                            &trf(self.lang, "msg.db_drop_failed", &[&e.to_string()]),
+                            true,
+                        ),
                     }
                 }
             }
@@ -1596,9 +1713,10 @@ impl AppState {
                     self.load_collections(db);
                     self.toast(&trf(self.lang, "msg.coll_renamed", &[old, new]), false);
                 }
-                Err(e) => {
-                    self.toast(&trf(self.lang, "msg.coll_rename_failed", &[&e.to_string()]), true)
-                }
+                Err(e) => self.toast(
+                    &trf(self.lang, "msg.coll_rename_failed", &[&e.to_string()]),
+                    true,
+                ),
             }
         }
     }
@@ -1607,7 +1725,11 @@ impl AppState {
         if idx >= self.tabs.len() {
             return;
         }
+        self.sync_to_active_tab();
         self.tabs.remove(idx);
+        if idx < self.active_tab {
+            self.active_tab -= 1;
+        }
         if self.tabs.is_empty() {
             self.tabs.push(QueryTab::new(self.next_tab_id, "", ""));
             self.next_tab_id += 1;
@@ -1623,6 +1745,7 @@ impl AppState {
         if idx >= self.tabs.len() {
             return;
         }
+        self.sync_to_active_tab();
         let keep = self.tabs[idx].clone();
         self.tabs = vec![keep];
         self.active_tab = 0;
@@ -1634,6 +1757,7 @@ impl AppState {
         if idx >= self.tabs.len() {
             return;
         }
+        self.sync_to_active_tab();
         self.tabs.truncate(idx + 1);
         if self.active_tab > idx {
             self.active_tab = idx;
@@ -1672,8 +1796,7 @@ fn parse_script(script: &str) -> Result<ParsedQuery, String> {
         .find('(')
         .map(|p| find_pos + p)
         .ok_or_else(|| "find() 括号不匹配".to_string())?;
-    let close = find_matching_paren(s, open)
-        .ok_or_else(|| "find() 括号不匹配".to_string())?;
+    let close = find_matching_paren(s, open).ok_or_else(|| "find() 括号不匹配".to_string())?;
     let args = s[open + 1..close].trim();
     // 顶层按逗号拆分，取第一段作为 filter（忽略可选的 projection 第二段）
     let filter_str = split_top_level(args, ',')
@@ -1698,8 +1821,8 @@ fn parse_script(script: &str) -> Result<ParsedQuery, String> {
         let t = rest.trim_start();
         if let Some(after) = t.strip_prefix(".sort(") {
             // after 形如 "{a:-1}).limit(5)"
-            let close_brace = find_matching_brace(after)
-                .ok_or_else(|| "sort() 括号不匹配".to_string())?;
+            let close_brace =
+                find_matching_brace(after).ok_or_else(|| "sort() 括号不匹配".to_string())?;
             let sort_str = after[..=close_brace].trim();
             sort = parse_doc(sort_str)?;
             rest = after[close_brace + 1..]
@@ -1739,7 +1862,7 @@ fn parse_collection_name(expr: &str) -> Result<String, String> {
         let start = pos + "getCollection(".len();
         let tail = &expr[start..];
         let quote_pos = tail
-            .find(|c| c == '\'' || c == '"')
+            .find(['\'', '"'])
             .ok_or_else(|| "无法解析 getCollection 参数".to_string())?;
         let quote = tail[quote_pos..].chars().next().unwrap();
         let inner = &tail[quote_pos + 1..];
@@ -1998,10 +2121,8 @@ mod query_script_tests {
 
     #[test]
     fn preserves_chinese_filter_values() {
-        let query = parse_script(
-            r#"db.ChinaumsApiLog.find({"apiName": "二维码支付"})"#,
-        )
-        .expect("query script should parse");
+        let query = parse_script(r#"db.ChinaumsApiLog.find({"apiName": "二维码支付"})"#)
+            .expect("query script should parse");
 
         assert_eq!(
             query.filter.get("apiName"),
@@ -2024,8 +2145,10 @@ mod query_script_tests {
 
     #[test]
     fn keeps_non_object_id_strings_unchanged() {
-        let query = parse_script(r#"db.items.find({_id: "not-an-object-id", name: "675019e7af159c4e18299c4c"})"#)
-            .expect("string _id query should parse");
+        let query = parse_script(
+            r#"db.items.find({_id: "not-an-object-id", name: "675019e7af159c4e18299c4c"})"#,
+        )
+        .expect("string _id query should parse");
 
         assert_eq!(
             query.filter.get("_id"),
@@ -2033,18 +2156,15 @@ mod query_script_tests {
         );
         assert_eq!(
             query.filter.get("name"),
-            Some(&Bson::String(
-                "675019e7af159c4e18299c4c".to_string()
-            ))
+            Some(&Bson::String("675019e7af159c4e18299c4c".to_string()))
         );
     }
 
     #[test]
     fn accepts_unquoted_keys_and_single_quoted_values() {
-        let query = parse_script(
-            "db.ChinaumsApiLog.find({apiName: '二维码支付'}).sort({requestTime: -1})",
-        )
-        .expect("unquoted keys and single-quoted values should parse");
+        let query =
+            parse_script("db.ChinaumsApiLog.find({apiName: '二维码支付'}).sort({requestTime: -1})")
+                .expect("unquoted keys and single-quoted values should parse");
 
         assert_eq!(
             query.filter.get("apiName"),
@@ -2065,5 +2185,147 @@ mod query_script_tests {
             query.filter.get("name"),
             Some(&Bson::String("Bob \"the builder\"".to_string()))
         );
+    }
+}
+
+/// Export canonical Extended JSON so files remain valid JSON and retain BSON types.
+fn documents_to_export_json(docs: &[Document]) -> Result<String, serde_json::Error> {
+    let values: Vec<_> = docs
+        .iter()
+        .map(|doc| rubo3t_core::bson::Bson::Document(doc.clone()).into_canonical_extjson())
+        .collect();
+    serde_json::to_string_pretty(&values)
+}
+
+#[cfg(test)]
+mod workspace_state_tests {
+    use super::*;
+
+    fn state() -> AppState {
+        let path = std::env::temp_dir().join(format!(
+            "rubo3t-tests-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        AppState::from_config_dir(path)
+    }
+
+    #[test]
+    fn workspace_renders_all_result_modes_at_narrow_width_and_zoom() {
+        let mut state = state();
+        state.lang = Lang::En;
+        state.tabs.push(QueryTab::new(1, "test", "collection"));
+        state.sync_from_active_tab();
+        state.documents = vec![doc! {"name": "example", "nested": {"count": 3}}];
+        let ctx = egui::Context::default();
+        crate::icons::register(&ctx);
+        crate::font::apply_robo_theme(&ctx);
+        for zoom in [1.0, 1.5] {
+            ctx.set_zoom_factor(zoom);
+            for mode in [
+                ViewMode::Table,
+                ViewMode::Tree,
+                ViewMode::Text,
+                ViewMode::Custom,
+            ] {
+                state.current_view_mode = mode;
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(640.0 / zoom, 480.0 / zoom),
+                    )),
+                    ..Default::default()
+                };
+                let output = ctx.run(input, |ctx| crate::ui::workspace::render(ctx, &mut state));
+                assert!(!output.shapes.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn background_query_updates_its_original_tab() {
+        let mut state = state();
+        state.tabs = vec![QueryTab::new(1, "db", "one"), QueryTab::new(2, "db", "two")];
+        state.sync_from_active_tab();
+        state.spawn_query(async { Ok(vec![doc! { "value": 42 }]) });
+        state.active_tab = 1;
+        state.sync_from_active_tab();
+        state
+            .rt
+            .block_on(&mut state.pending_query.as_mut().unwrap().task)
+            .unwrap();
+        state.poll_query();
+        assert!(!state.query_running());
+        assert_eq!(state.tabs[0].documents, vec![doc! { "value": 42 }]);
+        assert!(state.tabs[1].documents.is_empty());
+        assert!(state.documents.is_empty());
+    }
+
+    #[test]
+    fn cancelled_query_cannot_replace_results() {
+        let mut state = state();
+        state.tabs.push(QueryTab::new(1, "db", "one"));
+        state.spawn_query(async { std::future::pending().await });
+        assert!(state.query_running());
+        state.stop_query();
+        state.poll_query();
+        assert!(!state.query_running());
+        assert!(state.documents.is_empty());
+    }
+
+    #[test]
+    fn closing_left_tab_preserves_active_identity_and_edits() {
+        let mut state = state();
+        state.tabs = (0..3)
+            .map(|id| QueryTab::new(id, "test", format!("c{id}")))
+            .collect();
+        state.active_tab = 1;
+        state.sync_from_active_tab();
+        state.script_text = "unsaved script".into();
+        state.close_tab(0);
+        assert_eq!(state.active_tab, 0);
+        assert_eq!(state.tabs[0].id, 1);
+        assert_eq!(state.script_text, "unsaved script");
+        assert!(state.tabs[0].dirty);
+    }
+
+    #[test]
+    fn closing_other_tabs_keeps_latest_workspace_values() {
+        let mut state = state();
+        state.tabs = vec![
+            QueryTab::new(1, "db", "coll"),
+            QueryTab::new(2, "db", "other"),
+        ];
+        state.sync_from_active_tab();
+        state.agg_text = "[{\"$limit\": 3}]".into();
+        state.close_other_tabs(0);
+        assert_eq!(state.tabs.len(), 1);
+        assert_eq!(state.agg_text, "[{\"$limit\": 3}]");
+        assert!(state.tabs[0].dirty);
+    }
+
+    #[test]
+    fn tab_switch_restores_paging_inputs() {
+        let mut state = state();
+        let mut tab = QueryTab::new(1, "db", "coll");
+        tab.skip = 120;
+        tab.limit = 20;
+        state.tabs.push(tab);
+        state.sync_from_active_tab();
+        assert_eq!(state.skip_input, "120");
+        assert_eq!(state.batch_input, "20");
+    }
+
+    #[test]
+    fn exported_json_roundtrips_dates_and_numeric_types() {
+        let docs = vec![rubo3t_core::bson::doc! {
+            "date": rubo3t_core::bson::DateTime::from_millis(1600000000000),
+            "long": 42i64,
+            "double": 1.0,
+            "id": rubo3t_core::bson::oid::ObjectId::new(),
+        }];
+        let text = documents_to_export_json(&docs).unwrap();
+        assert!(serde_json::from_str::<serde_json::Value>(&text).is_ok());
+        assert_eq!(bson_ext::parse_pipeline_text(&text).unwrap(), docs);
     }
 }

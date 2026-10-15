@@ -8,6 +8,8 @@ use crate::i18n::Lang;
 
 pub fn render(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
+    let mut act_open = false;
+    let mut act_save = false;
     let mut act_manage = false;
     let mut act_disconnect = false;
     let mut act_about = false;
@@ -33,12 +35,17 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                 }
                 ui.separator();
                 if ui.button(lang.tr("menu.open")).clicked() {
+                    act_open = true;
                     ui.close_menu();
                 }
                 if ui.button(lang.tr("menu.save")).clicked() {
+                    act_save = true;
                     ui.close_menu();
                 }
-                if ui.button(lang.tr("menu.save_as")).clicked() {
+                if ui
+                    .add_enabled(false, egui::Button::new(lang.tr("menu.save_as")))
+                    .clicked()
+                {
                     ui.close_menu();
                 }
                 ui.separator();
@@ -49,26 +56,57 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             });
 
             ui.menu_button(lang.tr("menu.view"), |ui| {
-                if ui.checkbox(&mut state.show_logs, lang.tr("logs.toggle")).clicked() {
+                if ui
+                    .checkbox(&mut state.show_logs, lang.tr("logs.toggle"))
+                    .clicked()
+                {
                     ui.close_menu();
                 }
             });
 
             ui.menu_button(lang.tr("menu.options"), |ui| {
                 ui.menu_button(lang.tr("menu.view_mode"), |ui| {
-                    if ui.radio_value(&mut state.current_view_mode, ViewMode::Custom, lang.tr("view.custom")).clicked() {
+                    if ui
+                        .radio_value(
+                            &mut state.current_view_mode,
+                            ViewMode::Custom,
+                            lang.tr("view.custom"),
+                        )
+                        .clicked()
+                    {
                         state.save_settings();
                         ui.close_menu();
                     }
-                    if ui.radio_value(&mut state.current_view_mode, ViewMode::Tree, lang.tr("view.tree")).clicked() {
+                    if ui
+                        .radio_value(
+                            &mut state.current_view_mode,
+                            ViewMode::Tree,
+                            lang.tr("view.tree"),
+                        )
+                        .clicked()
+                    {
                         state.save_settings();
                         ui.close_menu();
                     }
-                    if ui.radio_value(&mut state.current_view_mode, ViewMode::Table, lang.tr("view.table")).clicked() {
+                    if ui
+                        .radio_value(
+                            &mut state.current_view_mode,
+                            ViewMode::Table,
+                            lang.tr("view.table"),
+                        )
+                        .clicked()
+                    {
                         state.save_settings();
                         ui.close_menu();
                     }
-                    if ui.radio_value(&mut state.current_view_mode, ViewMode::Text, lang.tr("view.text")).clicked() {
+                    if ui
+                        .radio_value(
+                            &mut state.current_view_mode,
+                            ViewMode::Text,
+                            lang.tr("view.text"),
+                        )
+                        .clicked()
+                    {
                         state.save_settings();
                         ui.close_menu();
                     }
@@ -83,26 +121,101 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                     }
                 });
                 ui.menu_button(lang.tr("menu.uuid"), |ui| {
-                    if ui.button(lang.tr("menu.uuid_default")).clicked() { ui.close_menu(); }
-                    if ui.button(lang.tr("menu.uuid_java")).clicked() { ui.close_menu(); }
-                    if ui.button(lang.tr("menu.uuid_dotnet")).clicked() { ui.close_menu(); }
-                    if ui.button(lang.tr("menu.uuid_python")).clicked() { ui.close_menu(); }
+                    if ui.button(lang.tr("menu.uuid_default")).clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("menu.uuid_java")).clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("menu.uuid_dotnet")).clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("menu.uuid_python")).clicked() {
+                        ui.close_menu();
+                    }
                 });
                 ui.menu_button(lang.tr("menu.autocomplete"), |ui| {
-                    if ui.button(lang.tr("menu.autocomplete_all")).clicked() { ui.close_menu(); }
-                    if ui.button(lang.tr("menu.autocomplete_no_coll")).clicked() { ui.close_menu(); }
-                    if ui.button(lang.tr("menu.autocomplete_none")).clicked() { ui.close_menu(); }
+                    if ui.button(lang.tr("menu.autocomplete_all")).clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("menu.autocomplete_no_coll")).clicked() {
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("menu.autocomplete_none")).clicked() {
+                        ui.close_menu();
+                    }
                 });
                 ui.separator();
-                if ui.button(lang.tr("menu.load_mongorc")).clicked() { ui.close_menu(); }
-                if ui.checkbox(&mut state.app_settings.auto_expand, lang.tr("menu.auto_expand")).clicked() { ui.close_menu(); }
-                if ui.checkbox(&mut state.app_settings.line_numbers, lang.tr("menu.line_numbers")).clicked() { ui.close_menu(); }
-                if ui.checkbox(&mut state.app_settings.auto_exec, lang.tr("menu.auto_exec")).clicked() { ui.close_menu(); }
-                if ui.checkbox(&mut state.app_settings.disable_conn_shortcuts, lang.tr("menu.disable_conn_shortcuts")).clicked() { ui.close_menu(); }
+                if ui.button(lang.tr("menu.load_mongorc")).clicked() {
+                    ui.close_menu();
+                }
+                if ui
+                    .checkbox(
+                        &mut state.app_settings.auto_expand,
+                        lang.tr("menu.auto_expand"),
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                }
+                if ui
+                    .checkbox(
+                        &mut state.app_settings.line_numbers,
+                        lang.tr("menu.line_numbers"),
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                }
+                if ui
+                    .checkbox(&mut state.app_settings.auto_exec, lang.tr("menu.auto_exec"))
+                    .clicked()
+                {
+                    ui.close_menu();
+                }
+                if ui
+                    .checkbox(
+                        &mut state.app_settings.disable_conn_shortcuts,
+                        lang.tr("menu.disable_conn_shortcuts"),
+                    )
+                    .clicked()
+                {
+                    ui.close_menu();
+                }
                 ui.menu_button(lang.tr("menu.default_sort"), |ui| {
-                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::None, lang.tr("sort.none")).clicked() { state.save_settings(); ui.close_menu(); }
-                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::IdAsc, lang.tr("sort.id_asc")).clicked() { state.save_settings(); ui.close_menu(); }
-                    if ui.radio_value(&mut state.app_settings.default_sort, DefaultSort::IdDesc, lang.tr("sort.id_desc")).clicked() { state.save_settings(); ui.close_menu(); }
+                    if ui
+                        .radio_value(
+                            &mut state.app_settings.default_sort,
+                            DefaultSort::None,
+                            lang.tr("sort.none"),
+                        )
+                        .clicked()
+                    {
+                        state.save_settings();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .radio_value(
+                            &mut state.app_settings.default_sort,
+                            DefaultSort::IdAsc,
+                            lang.tr("sort.id_asc"),
+                        )
+                        .clicked()
+                    {
+                        state.save_settings();
+                        ui.close_menu();
+                    }
+                    if ui
+                        .radio_value(
+                            &mut state.app_settings.default_sort,
+                            DefaultSort::IdDesc,
+                            lang.tr("sort.id_desc"),
+                        )
+                        .clicked()
+                    {
+                        state.save_settings();
+                        ui.close_menu();
+                    }
                 });
                 // 语言 / Language 子菜单移入 Options 底部（Robo3T 顶级无此项）
                 ui.separator();
@@ -162,6 +275,12 @@ pub fn render(ctx: &Context, state: &mut AppState) {
         });
     });
 
+    if act_open {
+        super::toolbar::open_script(state);
+    }
+    if act_save {
+        super::toolbar::save_script(state);
+    }
     if act_manage {
         state.conn_dlg = crate::form::ConnectionForm::default();
         state.conn_dlg_selected = None;
@@ -185,18 +304,23 @@ pub fn render(ctx: &Context, state: &mut AppState) {
         std::process::exit(0);
     }
     if act_fullscreen {
-        // eframe fullscreen toggle handled in main
+        let fullscreen = ctx.input(|input| input.viewport().fullscreen.unwrap_or(false));
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
     }
     if act_next_tab && !state.tabs.is_empty() {
         state.active_tab = (state.active_tab + 1) % state.tabs.len();
         state.sync_from_active_tab();
     }
     if act_prev_tab && !state.tabs.is_empty() {
-        state.active_tab = if state.active_tab == 0 { state.tabs.len() - 1 } else { state.active_tab - 1 };
+        state.active_tab = if state.active_tab == 0 {
+            state.tabs.len() - 1
+        } else {
+            state.active_tab - 1
+        };
         state.sync_from_active_tab();
     }
     if act_reexec {
-        state.run_query();
+        state.run_current_query();
     }
     if act_duplicate {
         if let Some(tab) = state.tabs.get(state.active_tab).cloned() {

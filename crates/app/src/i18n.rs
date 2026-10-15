@@ -15,14 +15,7 @@ pub enum Lang {
 }
 
 impl Lang {
-    pub fn label(self) -> &'static str {
-        match self {
-            Lang::Zh => "中文",
-            Lang::En => "English",
-        }
-    }
-
-    pub fn tr<'a>(self, key: &'a str) -> &'a str {
+    pub fn tr(self, key: &str) -> &str {
         let map = match self {
             Lang::Zh => &*ZH,
             Lang::En => &*EN,
@@ -56,7 +49,10 @@ pub fn trf(lang: Lang, key: &str, args: &[&str]) -> String {
 static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("app.title", "Rubo3T");
-    m.insert("app.subtitle", "用 Rust 重写的 MongoDB 管理工具 · 支持 MongoDB 3.x → 8.x / 集群 / RDS");
+    m.insert(
+        "app.subtitle",
+        "用 Rust 重写的 MongoDB 管理工具 · 支持 MongoDB 3.x → 8.x / 集群 / RDS",
+    );
     m.insert("common.ok", "确定");
     m.insert("common.close", "关闭");
     m.insert("common.save", "保存");
@@ -103,18 +99,33 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("server_status.asserts", "断言");
     m.insert("server_status.host", "主机信息");
     m.insert("server_status.replset", "副本集拓扑");
-    m.insert("server_status.standalone_or_err", "单机实例或无副本集（replSetGetStatus 不适用）");
+    m.insert(
+        "server_status.standalone_or_err",
+        "单机实例或无副本集（replSetGetStatus 不适用）",
+    );
     m.insert("server_status.diagnostics", "诊断 / 版本能力");
-    m.insert("auth.warn.cr_removed", "注意：当前服务器 ≥ 4.0，已移除 MONGODB-CR，使用此机制可能连接失败。");
-    m.insert("auth.warn.sha256_min", "注意：SCRAM-SHA-256 需要 MongoDB 4.0+，当前服务器版本较低。");
-    m.insert("auth.warn.sha1_min", "注意：SCRAM-SHA-1 需要 MongoDB 3.0+，当前服务器版本较低。");
+    m.insert(
+        "auth.warn.cr_removed",
+        "注意：当前服务器 ≥ 4.0，已移除 MONGODB-CR，使用此机制可能连接失败。",
+    );
+    m.insert(
+        "auth.warn.sha256_min",
+        "注意：SCRAM-SHA-256 需要 MongoDB 4.0+，当前服务器版本较低。",
+    );
+    m.insert(
+        "auth.warn.sha1_min",
+        "注意：SCRAM-SHA-1 需要 MongoDB 3.0+，当前服务器版本较低。",
+    );
     m.insert("menu.lang", "语言");
     m.insert("status.connected", "已连接");
     m.insert("status.not_connected", "未连接");
     m.insert("status.cluster", "集群");
 
     m.insert("explorer.title", "连接");
-    m.insert("explorer.not_connected", "尚未连接。点击顶部「连接管理」建立连接。");
+    m.insert(
+        "explorer.not_connected",
+        "尚未连接。点击顶部「连接管理」建立连接。",
+    );
     m.insert("explorer.no_collections", "(无集合)");
 
     m.insert("welcome.open_connect", "打开连接管理");
@@ -142,7 +153,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("index.field", "字段:");
     m.insert("index.unique", "唯一");
     m.insert("index.name", "名称(可选):");
-    m.insert("index.field_hint", "支持多字段: a,b 或 a:1,b:-1（默认升序 1）");
+    m.insert(
+        "index.field_hint",
+        "支持多字段: a,b 或 a:1,b:-1（默认升序 1）",
+    );
     m.insert("index.created", "已创建索引");
     m.insert("index.create_failed", "创建索引失败");
     m.insert("index.dropped", "已删除索引");
@@ -183,7 +197,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("shell.label", "Shell/命令:");
     m.insert("shell.db", "(库)");
     m.insert("shell.run", "执行");
-    m.insert("shell.tip", "提示: 输入扩展 JSON 命令，如 {\"find\":\"users\",\"filter\":{}}");
+    m.insert(
+        "shell.tip",
+        "提示: 输入扩展 JSON 命令，如 {\"find\":\"users\",\"filter\":{}}",
+    );
     m.insert("shell.history_up", "上一条");
     m.insert("shell.history_down", "下一条");
 
@@ -218,7 +235,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("mech.awsiam", "MONGODB-AWS (IAM)");
     m.insert("ssh.password", "密码");
     m.insert("ssh.key", "密钥");
-    m.insert("form.mechanism.tip", "机制说明: 留「自动」时，驱动会按服务器版本协商（4.0+ 默认 SCRAM-SHA-256）。");
+    m.insert(
+        "form.mechanism.tip",
+        "机制说明: 留「自动」时，驱动会按服务器版本协商（4.0+ 默认 SCRAM-SHA-256）。",
+    );
     m.insert("form.ssl", "TLS/SSL");
     m.insert("form.ssl.enable", "启用 TLS");
     m.insert("form.ssl.allow_invalid", "允许无效/自签名证书");
@@ -344,13 +364,22 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("explorer.create_coll_title", "新建集合");
     m.insert("explorer.coll_name", "集合名称:");
     m.insert("explorer.confirm_drop_coll", "确定删除集合 “{}” 吗?");
-    m.insert("explorer.confirm_drop_db", "确定删除数据库 “{}” 吗? 此操作不可恢复!");
+    m.insert(
+        "explorer.confirm_drop_db",
+        "确定删除数据库 “{}” 吗? 此操作不可恢复!",
+    );
 
     m.insert("welcome.title", "欢迎");
     m.insert("welcome.heading", "欢迎使用 Rubo3T");
-    m.insert("welcome.sub", "Rust 重写的 MongoDB 管理工具 · 支持 MongoDB 3.x → 8.x / 集群 / RDS");
+    m.insert(
+        "welcome.sub",
+        "Rust 重写的 MongoDB 管理工具 · 支持 MongoDB 3.x → 8.x / 集群 / RDS",
+    );
     m.insert("welcome.open_connect", "打开连接管理");
-    m.insert("welcome.tip", "从顶部「连接」按钮或菜单「文件 → 连接…」选择连接");
+    m.insert(
+        "welcome.tip",
+        "从顶部「连接」按钮或菜单「文件 → 连接…」选择连接",
+    );
 
     m.insert("query.run", "执行");
     m.insert("query.new_doc", "新建文档");
@@ -406,14 +435,20 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("settings.test", "测试");
     m.insert("settings.default_db", "默认数据库");
     m.insert("settings.from_uri", "从 URI 导入");
-    m.insert("settings.uri_placeholder", "从 MongoDB URI 连接字符串导入连接详情");
+    m.insert(
+        "settings.uri_placeholder",
+        "从 MongoDB URI 连接字符串导入连接详情",
+    );
 
     // ---- 连接设置 5 tab 1:1 复刻新增/修正键 ----
     m.insert("form.members", "成员:");
     m.insert("form.auth.db_hint", "admin 数据库在 MongoDB 中是唯一的。拥有 admin 数据库普通访问权限的用户对所有数据库都有读写权限。");
     m.insert("form.auth.visible_dbs", "手动指定可见数据库");
     m.insert("form.auth.visible_dbs_label", "数据库");
-    m.insert("form.auth.visible_dbs_placeholder", "逗号分隔，例如 products, users");
+    m.insert(
+        "form.auth.visible_dbs_placeholder",
+        "逗号分隔，例如 products, users",
+    );
     m.insert("form.auth.visible_dbs_hint", "某些 MongoDB 用户可能没有权限获取数据库名称列表（listDatabases 命令）。此时请手动添加该用户有权访问的数据库名称。");
     m.insert("form.show", "显示");
     m.insert("form.hide", "隐藏");
@@ -429,7 +464,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("form.tls.auth_ca", "使用 CA 证书");
     m.insert("form.tls.self_signed_info", "通常，除非网络可信，否则应避免使用自签名证书。使用自签名证书时通信通道会被加密，但不会验证服务器身份。");
     m.insert("form.tls.use_pem", "使用 PEM 证书/密钥:");
-    m.insert("form.tls.pem_info", "启用此选项以连接到需要 CA 签名的客户端证书/密钥文件的 MongoDB。");
+    m.insert(
+        "form.tls.pem_info",
+        "启用此选项以连接到需要 CA 签名的客户端证书/密钥文件的 MongoDB。",
+    );
     m.insert("form.tls.pem_file", "PEM 证书/密钥:");
     m.insert("form.tls.pem_passphrase", "口令:");
     m.insert("form.tls.ask_pem_pass", "每次都询问口令");
@@ -447,7 +485,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("about.title", "关于 Rubo3T");
     m.insert("about.line1", "Rubo3T —— 用 Rust 重写的 MongoDB 管理工具");
     m.insert("about.line2", "UI 复刻 Robo 3T 1.4.4 (Studio 3T)");
-    m.insert("about.line3", "驱动: 官方 mongodb-rust 3.8.x · 支持 MongoDB 3.x → 8.x");
+    m.insert(
+        "about.line3",
+        "驱动: 官方 mongodb-rust 3.8.x · 支持 MongoDB 3.x → 8.x",
+    );
 
     m.insert("options.title", "选项");
 
@@ -461,6 +502,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("tab.close_others", "关闭其他 Shell");
     m.insert("tab.close_right", "关闭右侧 Shell");
     m.insert("paging.skip", "跳过");
+    m.insert(
+        "paging.find_only",
+        "分页仅适用于 Find 查询，请等待当前查询完成",
+    );
     m.insert("paging.batch", "批量大小（一次显示的文档数）");
     m.insert("doc.edit_title", "编辑文档");
     m.insert("doc.insert_title", "插入文档");
@@ -486,7 +531,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("dialog.confirm_remove_title", "删除连接");
     m.insert("dialog.add", "添加");
     m.insert("form.hint.name", "输入一个便于识别此连接的名称。");
-    m.insert("form.hint.address", "指定 MongoDB 服务器的主机和端口。主机可以是 IPv4、IPv6 或域名。");
+    m.insert(
+        "form.hint.address",
+        "指定 MongoDB 服务器的主机和端口。主机可以是 IPv4、IPv6 或域名。",
+    );
     m.insert("form.tls.ca_file", "CA 证书:");
     m.insert("form.tls.cert_file", "PEM 证书:");
     m.insert("form.tls.key_file", "PEM 密码:");
@@ -497,7 +545,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("attr.tls", "TLS");
     m.insert("attr.ssh", "SSH");
     m.insert("doc.validate", "校验");
-    m.insert("about.copyright", "Copyright © 2016-2024 Studio 3T / Robo 3T。UI 复刻 by Rubo3T。");
+    m.insert(
+        "about.copyright",
+        "Copyright © 2016-2024 Studio 3T / Robo 3T。UI 复刻 by Rubo3T。",
+    );
     m.insert("test.title", "连接诊断");
     m.insert("common.error", "错误");
     m.insert("doc.validate_ok", "JSON 合法");
@@ -513,7 +564,10 @@ static ZH: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
 static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("app.title", "Rubo3T");
-    m.insert("app.subtitle", "MongoDB admin tool in Rust · supporting MongoDB 3.x → 8.x / cluster / RDS");
+    m.insert(
+        "app.subtitle",
+        "MongoDB admin tool in Rust · supporting MongoDB 3.x → 8.x / cluster / RDS",
+    );
     m.insert("common.ok", "OK");
     m.insert("common.close", "Close");
     m.insert("common.save", "Save");
@@ -534,7 +588,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("menu.disconnect", "Disconnect");
     m.insert("menu.version_caps", "Version Capabilities");
     m.insert("caps.title", "Version Capabilities");
-    m.insert("caps.not_connected", "Not connected to a server; version capabilities unavailable.");
+    m.insert(
+        "caps.not_connected",
+        "Not connected to a server; version capabilities unavailable.",
+    );
     m.insert("caps.server_label", "Server");
     m.insert("caps.version_label", "Version");
     m.insert("caps.edition_label", "Edition");
@@ -554,24 +611,45 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("server_status.overview", "Overview");
     m.insert("server_status.version", "Version");
     m.insert("server_status.uptime", "Uptime (s)");
-    m.insert("server_status.connections", "Connections (current / available)");
+    m.insert(
+        "server_status.connections",
+        "Connections (current / available)",
+    );
     m.insert("server_status.memory", "Memory (resident / virtual MB)");
     m.insert("server_status.opcounters", "Opcounters");
     m.insert("server_status.asserts", "Asserts");
     m.insert("server_status.host", "Host Info");
     m.insert("server_status.replset", "Replica Set Topology");
-    m.insert("server_status.standalone_or_err", "Standalone instance or no replica set (replSetGetStatus N/A)");
-    m.insert("server_status.diagnostics", "Diagnostics / Version Capabilities");
-    m.insert("auth.warn.cr_removed", "Note: server ≥ 4.0 removed MONGODB-CR; this mechanism may fail.");
-    m.insert("auth.warn.sha256_min", "Note: SCRAM-SHA-256 requires MongoDB 4.0+; current server is older.");
-    m.insert("auth.warn.sha1_min", "Note: SCRAM-SHA-1 requires MongoDB 3.0+; current server is older.");
+    m.insert(
+        "server_status.standalone_or_err",
+        "Standalone instance or no replica set (replSetGetStatus N/A)",
+    );
+    m.insert(
+        "server_status.diagnostics",
+        "Diagnostics / Version Capabilities",
+    );
+    m.insert(
+        "auth.warn.cr_removed",
+        "Note: server ≥ 4.0 removed MONGODB-CR; this mechanism may fail.",
+    );
+    m.insert(
+        "auth.warn.sha256_min",
+        "Note: SCRAM-SHA-256 requires MongoDB 4.0+; current server is older.",
+    );
+    m.insert(
+        "auth.warn.sha1_min",
+        "Note: SCRAM-SHA-1 requires MongoDB 3.0+; current server is older.",
+    );
     m.insert("menu.lang", "Language");
     m.insert("status.connected", "Connected");
     m.insert("status.not_connected", "Not connected");
     m.insert("status.cluster", "cluster");
 
     m.insert("explorer.title", "Connection");
-    m.insert("explorer.not_connected", "Not connected. Click Connection Manager above.");
+    m.insert(
+        "explorer.not_connected",
+        "Not connected. Click Connection Manager above.",
+    );
     m.insert("explorer.no_collections", "(no collections)");
 
     m.insert("welcome.open_connect", "Open Connection Manager");
@@ -591,7 +669,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("doc.saved", "Document saved");
     m.insert("doc.deleted", "Document deleted");
     m.insert("doc.inserted", "Document inserted");
-    m.insert("doc.no_id", "Document missing _id, cannot locate update target");
+    m.insert(
+        "doc.no_id",
+        "Document missing _id, cannot locate update target",
+    );
 
     m.insert("index.title", "Index Management");
     m.insert("index.existing", "Existing indexes:");
@@ -599,7 +680,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("index.field", "Field:");
     m.insert("index.unique", "Unique");
     m.insert("index.name", "Name (optional):");
-    m.insert("index.field_hint", "Multi-field: a,b or a:1,b:-1 (default ascending 1)");
+    m.insert(
+        "index.field_hint",
+        "Multi-field: a,b or a:1,b:-1 (default ascending 1)",
+    );
     m.insert("index.created", "Index created");
     m.insert("index.create_failed", "Create index failed");
     m.insert("index.dropped", "Index dropped");
@@ -624,12 +708,18 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("user.create", "Create User...");
     m.insert("user.name_label", "Username:");
     m.insert("user.pwd", "Password:");
-    m.insert("user.roles_hint", "Roles (comma-separated, e.g. readWrite):");
+    m.insert(
+        "user.roles_hint",
+        "Roles (comma-separated, e.g. readWrite):",
+    );
     m.insert("user.created", "User {} created");
     m.insert("user.create_failed", "Create user failed: {}");
     m.insert("user.edit", "Edit");
     m.insert("user.edit_title", "Edit User");
-    m.insert("user.pwd_optional", "Password (leave blank to keep unchanged)");
+    m.insert(
+        "user.pwd_optional",
+        "Password (leave blank to keep unchanged)",
+    );
     m.insert("user.updated", "User updated");
     m.insert("user.update_failed", "User update failed: {}");
     m.insert("index.edit", "Edit");
@@ -640,7 +730,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("shell.label", "Shell / command:");
     m.insert("shell.db", "(db)");
     m.insert("shell.run", "Run");
-    m.insert("shell.tip", "Tip: enter extended JSON command, e.g. {\"find\":\"users\",\"filter\":{}}");
+    m.insert(
+        "shell.tip",
+        "Tip: enter extended JSON command, e.g. {\"find\":\"users\",\"filter\":{}}",
+    );
     m.insert("shell.history_up", "Previous");
     m.insert("shell.history_down", "Next");
 
@@ -675,11 +768,20 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("mech.awsiam", "MONGODB-AWS (IAM)");
     m.insert("ssh.password", "Password");
     m.insert("ssh.key", "Key");
-    m.insert("form.mechanism.tip", "Leave Auto to let driver negotiate by server version (4.0+ defaults to SCRAM-SHA-256).");
+    m.insert(
+        "form.mechanism.tip",
+        "Leave Auto to let driver negotiate by server version (4.0+ defaults to SCRAM-SHA-256).",
+    );
     m.insert("form.ssl", "TLS/SSL");
     m.insert("form.ssl.enable", "Enable TLS");
-    m.insert("form.ssl.allow_invalid", "Allow invalid/self-signed certificates");
-    m.insert("form.ssh", "SSH Tunnel (for RDS / DocumentDB / private network)");
+    m.insert(
+        "form.ssl.allow_invalid",
+        "Allow invalid/self-signed certificates",
+    );
+    m.insert(
+        "form.ssh",
+        "SSH Tunnel (for RDS / DocumentDB / private network)",
+    );
     m.insert("form.ssh.enable", "Forward via SSH bastion");
     m.insert("form.ssh.bastion", "Bastion:");
     m.insert("form.ssh.auth", "Auth method");
@@ -760,7 +862,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("menu.auto_expand", "Auto Expand First Document");
     m.insert("menu.line_numbers", "Show Line Numbers By Default");
     m.insert("menu.auto_exec", "Automatically execute code in new tab");
-    m.insert("menu.disable_conn_shortcuts", "Disable Connection Shortcuts");
+    m.insert(
+        "menu.disable_conn_shortcuts",
+        "Disable Connection Shortcuts",
+    );
     m.insert("menu.default_sort", "Default Sort");
     m.insert("sort.none", "None (natural order)");
     m.insert("sort.id_asc", "_id Ascending");
@@ -801,13 +906,22 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("explorer.create_coll_title", "Create Collection");
     m.insert("explorer.coll_name", "Collection name:");
     m.insert("explorer.confirm_drop_coll", "Drop collection “{}”?");
-    m.insert("explorer.confirm_drop_db", "Drop database “{}”? This cannot be undone!");
+    m.insert(
+        "explorer.confirm_drop_db",
+        "Drop database “{}”? This cannot be undone!",
+    );
 
     m.insert("welcome.title", "Welcome");
     m.insert("welcome.heading", "Welcome to Rubo3T");
-    m.insert("welcome.sub", "MongoDB admin tool in Rust · supporting MongoDB 3.x → 8.x / cluster / RDS");
+    m.insert(
+        "welcome.sub",
+        "MongoDB admin tool in Rust · supporting MongoDB 3.x → 8.x / cluster / RDS",
+    );
     m.insert("welcome.open_connect", "Open Connection Manager");
-    m.insert("welcome.tip", "Choose a connection from the Connect button or File → Connect...");
+    m.insert(
+        "welcome.tip",
+        "Choose a connection from the Connect button or File → Connect...",
+    );
 
     m.insert("query.run", "Run");
     m.insert("query.new_doc", "New Document");
@@ -851,8 +965,14 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("dialog.conn_clone", "Clone");
     m.insert("dialog.conn_connect", "Connect");
     m.insert("dialog.conn_cancel", "Cancel");
-    m.insert("dialog.conn_reorder", "or reorder connections via drag'n'drop");
-    m.insert("dialog.conn_confirm_remove", "Are you sure you want to delete the '{}' connection?");
+    m.insert(
+        "dialog.conn_reorder",
+        "or reorder connections via drag'n'drop",
+    );
+    m.insert(
+        "dialog.conn_confirm_remove",
+        "Are you sure you want to delete the '{}' connection?",
+    );
 
     m.insert("settings.title", "Connection Settings");
     m.insert("settings.tab_connection", "Connection");
@@ -863,14 +983,23 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("settings.test", "Test");
     m.insert("settings.default_db", "Default Database");
     m.insert("settings.from_uri", "From URI");
-    m.insert("settings.uri_placeholder", "Import connection details from MongoDB URI connection string");
+    m.insert(
+        "settings.uri_placeholder",
+        "Import connection details from MongoDB URI connection string",
+    );
 
     // ---- 连接设置 5 tab 1:1 复刻新增/修正键 ----
     m.insert("form.members", "Members:");
     m.insert("form.auth.db_hint", "The admin database is unique in MongoDB. Users with normal access to the admin database have read and write access to all databases.");
-    m.insert("form.auth.visible_dbs", "Manually specify visible databases");
+    m.insert(
+        "form.auth.visible_dbs",
+        "Manually specify visible databases",
+    );
     m.insert("form.auth.visible_dbs_label", "Databases");
-    m.insert("form.auth.visible_dbs_placeholder", "Comma-separated e.g. products, users");
+    m.insert(
+        "form.auth.visible_dbs_placeholder",
+        "Comma-separated e.g. products, users",
+    );
     m.insert("form.auth.visible_dbs_hint", "Some MongoDB users might not have the permission to get the list of database names (listDatabases command). For this case, manually add the name of the database(s) that this user has access to.");
     m.insert("form.show", "Show");
     m.insert("form.hide", "Hide");
@@ -880,7 +1009,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("form.ssh.private_key_placeholder", "DSA, RSA, and on Windows/macOS ECDSA, Ed25519 keys are supported. PPK keys must be converted to OPENSSH format.");
     m.insert("form.ssh.ask_password", "Ask for password each time");
     m.insert("form.ssh.ask_passphrase", "Ask for passphrase each time");
-    m.insert("form.ssh.disabled_hint", "SSH is currently not supported for Replica Set connections");
+    m.insert(
+        "form.ssh.disabled_hint",
+        "SSH is currently not supported for Replica Set connections",
+    );
     m.insert("form.tls.auth_method", "Authentication Method:");
     m.insert("form.tls.auth_self", "Self-signed Certificate");
     m.insert("form.tls.auth_ca", "Use CA Certificate");
@@ -902,9 +1034,15 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("logs.empty", "(no logs)");
 
     m.insert("about.title", "About Rubo3T");
-    m.insert("about.line1", "Rubo3T —— MongoDB admin tool rewritten in Rust");
+    m.insert(
+        "about.line1",
+        "Rubo3T —— MongoDB admin tool rewritten in Rust",
+    );
     m.insert("about.line2", "UI clone of Robo 3T 1.4.4 (Studio 3T)");
-    m.insert("about.line3", "Driver: official mongodb-rust 3.8.x · supports MongoDB 3.x → 8.x");
+    m.insert(
+        "about.line3",
+        "Driver: official mongodb-rust 3.8.x · supports MongoDB 3.x → 8.x",
+    );
 
     m.insert("options.title", "Options");
 
@@ -918,7 +1056,14 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("tab.close_others", "Close Other Shells");
     m.insert("tab.close_right", "Close Shells to the Right");
     m.insert("paging.skip", "Skip");
-    m.insert("paging.batch", "Batch Size (number of documents shown at once)");
+    m.insert(
+        "paging.find_only",
+        "Paging is available for Find queries after execution finishes",
+    );
+    m.insert(
+        "paging.batch",
+        "Batch Size (number of documents shown at once)",
+    );
     m.insert("doc.edit_title", "Edit Document");
     m.insert("doc.insert_title", "Insert Document");
     m.insert("indexes.caption", "Indexes");
@@ -938,12 +1083,21 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("dialog.conn_link_edit", "Edit");
     m.insert("dialog.conn_link_remove", "Remove");
     m.insert("dialog.conn_link_clone", "Clone");
-    m.insert("dialog.conn_link_tail", "or reorder connections via drag'n'drop.");
+    m.insert(
+        "dialog.conn_link_tail",
+        "or reorder connections via drag'n'drop.",
+    );
     m.insert("dialog.conn_clone_prefix", "Copy of ");
     m.insert("dialog.confirm_remove_title", "Delete Connection");
     m.insert("dialog.add", "Add");
-    m.insert("form.hint.name", "Choose any connection name that will help you to identify this connection.");
-    m.insert("form.hint.address", "Specify host and port of MongoDB server. Host can be either IPv4, IPv6 or domain name.");
+    m.insert(
+        "form.hint.name",
+        "Choose any connection name that will help you to identify this connection.",
+    );
+    m.insert(
+        "form.hint.address",
+        "Specify host and port of MongoDB server. Host can be either IPv4, IPv6 or domain name.",
+    );
     m.insert("form.tls.ca_file", "CA Certificate:");
     m.insert("form.tls.cert_file", "PEM Cert:");
     m.insert("form.tls.key_file", "PEM Passphrase:");
@@ -954,7 +1108,10 @@ static EN: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|| {
     m.insert("attr.tls", "TLS");
     m.insert("attr.ssh", "SSH");
     m.insert("doc.validate", "Validate");
-    m.insert("about.copyright", "Copyright © 2016-2024 Studio 3T / Robo 3T. UI clone by Rubo3T.");
+    m.insert(
+        "about.copyright",
+        "Copyright © 2016-2024 Studio 3T / Robo 3T. UI clone by Rubo3T.",
+    );
     m.insert("test.title", "Connection Diagnostic");
     m.insert("common.error", "Error");
     m.insert("doc.validate_ok", "JSON is valid");

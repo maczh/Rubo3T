@@ -274,58 +274,23 @@ impl FeatureGate {
 
     /// 返回面向 UI 的能力摘要。
     pub fn summary(&self) -> Vec<VersionCapability> {
-        let mut out = Vec::new();
-        out.push(VersionCapability::new(
-            "SCRAM-SHA-256",
-            self.supports_scram_sha256(),
-            "4.0+",
-        ));
-        out.push(VersionCapability::new(
-            "SCRAM-SHA-1",
-            self.version >= ServerVersion::new(3, 0, 0),
-            "3.0+",
-        ));
-        out.push(VersionCapability::new(
-            "MONGODB-CR",
-            self.supports_mongodb_cr(),
-            "< 4.0",
-        ));
-        out.push(VersionCapability::new(
-            "会话 / OP_MSG",
-            self.supports_sessions(),
-            "3.6+",
-        ));
-        out.push(VersionCapability::new(
-            "Change Streams",
-            self.supports_change_streams(),
-            "3.6+",
-        ));
-        out.push(VersionCapability::new(
-            "zstd 压缩",
-            self.supports_zstd(),
-            "4.2+",
-        ));
-        out.push(VersionCapability::new("$merge", self.supports_merge(), "4.2+"));
-        out.push(VersionCapability::new(
-            "$unionWith",
-            self.supports_union_with(),
-            "4.4+",
-        ));
-        out.push(VersionCapability::new(
-            "时间序列",
-            self.supports_timeseries(),
-            "5.0+",
-        ));
-        out.push(VersionCapability::new(
-            "OIDC 认证",
-            self.supports_oidc(),
-            "7.0+",
-        ));
-        out.push(VersionCapability::new(
-            "可查询加密",
-            self.supports_queryable_encryption(),
-            "7.0+",
-        ));
+        let out = vec![
+            VersionCapability::new("SCRAM-SHA-256", self.supports_scram_sha256(), "4.0+"),
+            VersionCapability::new(
+                "SCRAM-SHA-1",
+                self.version >= ServerVersion::new(3, 0, 0),
+                "3.0+",
+            ),
+            VersionCapability::new("MONGODB-CR", self.supports_mongodb_cr(), "< 4.0"),
+            VersionCapability::new("会话 / OP_MSG", self.supports_sessions(), "3.6+"),
+            VersionCapability::new("Change Streams", self.supports_change_streams(), "3.6+"),
+            VersionCapability::new("zstd 压缩", self.supports_zstd(), "4.2+"),
+            VersionCapability::new("$merge", self.supports_merge(), "4.2+"),
+            VersionCapability::new("$unionWith", self.supports_union_with(), "4.4+"),
+            VersionCapability::new("时间序列", self.supports_timeseries(), "5.0+"),
+            VersionCapability::new("OIDC 认证", self.supports_oidc(), "7.0+"),
+            VersionCapability::new("可查询加密", self.supports_queryable_encryption(), "7.0+"),
+        ];
         out
     }
 }
@@ -406,10 +371,7 @@ mod tests {
     #[test]
     fn explicit_mechanism_wins() {
         assert_eq!(
-            resolve_auth_mechanism(
-                ServerVersion::new(7, 0, 0),
-                Some(AuthMechanism::AwsIam)
-            ),
+            resolve_auth_mechanism(ServerVersion::new(7, 0, 0), Some(AuthMechanism::AwsIam)),
             AuthMechanism::AwsIam
         );
     }

@@ -7,8 +7,8 @@
 
 use eframe::egui;
 use egui::{
-    Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Frame, Id, Layout, Margin,
-    Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui, UiBuilder, Vec2, Window,
+    Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Frame, Id, Layout,
+    Margin, Rounding, ScrollArea, Sense, Stroke, TextEdit, TextStyle, Ui, UiBuilder, Vec2, Window,
 };
 
 use crate::app::{AppState, ConnDlgMode, ExplorerAction, FindTarget};
@@ -18,9 +18,9 @@ use crate::icons;
 use crate::ui::find;
 use crate::ui::syntax;
 use rubo3t_core::bson_ext;
-use rubo3t_core::Document;
 use rubo3t_core::settings::{validate, ConnectionMode, SshAuthMethod};
 use rubo3t_core::version::FeatureGate;
+use rubo3t_core::Document;
 
 /// Robo3T 蓝链颜色（#106CD6）。
 const LINK_BLUE: Color32 = Color32::from_rgb(0x10, 0x6C, 0xD6);
@@ -143,9 +143,11 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     // 删除集合 / 删除数据库确认框。
     if let Some(action) = state.confirm_action.clone() {
         let msg = match &action {
-            ExplorerAction::DropCollection(db, coll) => {
-                trf(lang, "explorer.confirm_drop_coll", &[&format!("{}.{}", db, coll)])
-            }
+            ExplorerAction::DropCollection(db, coll) => trf(
+                lang,
+                "explorer.confirm_drop_coll",
+                &[&format!("{}.{}", db, coll)],
+            ),
             ExplorerAction::DropDatabase(db) => trf(lang, "explorer.confirm_drop_db", &[db]),
         };
         let mut ok = false;
@@ -220,7 +222,9 @@ fn primary_button(ui: &mut Ui, icon: Option<&str>, label: &str) -> bool {
         if let Some(name) = icon {
             ui.add(icons::img(name).fit_to_original_size(1.0));
         }
-        let b = Button::new(label).fill(PRIMARY_FILL).stroke(primary_stroke());
+        let b = Button::new(label)
+            .fill(PRIMARY_FILL)
+            .stroke(primary_stroke());
         if ui.add(b).clicked() {
             clicked = true;
         }
@@ -232,7 +236,9 @@ fn primary_button(ui: &mut Ui, icon: Option<&str>, label: &str) -> bool {
 fn pw_row(ui: &mut Ui, label: &str, text: &mut String, show: &mut bool, lang: Lang) {
     ui.horizontal(|ui| {
         ui.label(label);
-        let edit = TextEdit::singleline(text).password(!*show).desired_width(200.0);
+        let edit = TextEdit::singleline(text)
+            .password(!*show)
+            .desired_width(200.0);
         ui.add(edit);
         let tgl = if *show {
             lang.tr("form.hide")
@@ -277,7 +283,7 @@ fn truncate_with_dots(ui: &mut Ui, text: &str, max_width: f32) -> String {
     let mut lo = 0usize;
     let mut hi = n;
     while lo < hi {
-        let mid = (lo + hi + 1) / 2;
+        let mid = (lo + hi).div_ceil(2);
         let cand: String = text.chars().take(mid).collect();
         if width_of(&cand) + ell_w <= max_width {
             lo = mid;
@@ -349,116 +355,116 @@ fn render_connections_dialog(ctx: &Context, state: &mut AppState) {
                 .auto_shrink([false, false])
                 .max_height(280.0)
                 .show(ui, |ui| {
-                for (i, conn) in state.connections.iter().enumerate() {
-                    let is_selected = selected == Some(i);
-                    let zebra = i % 2 == 1;
-                    let bg = if is_selected {
-                        SELECTED_BG
-                    } else if zebra {
-                        ZEBRA
-                    } else {
-                        Color32::TRANSPARENT
-                    };
+                    for (i, conn) in state.connections.iter().enumerate() {
+                        let is_selected = selected == Some(i);
+                        let zebra = i % 2 == 1;
+                        let bg = if is_selected {
+                            SELECTED_BG
+                        } else if zebra {
+                            ZEBRA
+                        } else {
+                            Color32::TRANSPARENT
+                        };
 
-                    let icon = match conn.mode {
-                        ConnectionMode::ReplicaSet => "replica_set_16x16",
-                        _ => "server_16x16",
-                    };
-                    let addr = if conn.mode == ConnectionMode::ReplicaSet {
-                        let first = conn
-                            .hosts
-                            .first()
-                            .map(|h| h.to_string())
-                            .unwrap_or_default();
-                        format!("{} node(s) ({})", conn.hosts.len(), first)
-                    } else {
-                        conn.hosts
-                            .first()
-                            .map(|h| h.to_string())
-                            .unwrap_or_default()
-                    };
-                    let mut attrs: Vec<&str> = Vec::new();
-                    if conn.mode == ConnectionMode::ReplicaSet {
-                        attrs.push(lang.tr("attr.replica"));
-                    }
-                    if conn.ssl.enabled {
-                        attrs.push(lang.tr("attr.tls"));
-                    }
-                    if conn.ssh.enabled {
-                        attrs.push(lang.tr("attr.ssh"));
-                    }
+                        let icon = match conn.mode {
+                            ConnectionMode::ReplicaSet => "replica_set_16x16",
+                            _ => "server_16x16",
+                        };
+                        let addr = if conn.mode == ConnectionMode::ReplicaSet {
+                            let first = conn
+                                .hosts
+                                .first()
+                                .map(|h| h.to_string())
+                                .unwrap_or_default();
+                            format!("{} node(s) ({})", conn.hosts.len(), first)
+                        } else {
+                            conn.hosts
+                                .first()
+                                .map(|h| h.to_string())
+                                .unwrap_or_default()
+                        };
+                        let mut attrs: Vec<&str> = Vec::new();
+                        if conn.mode == ConnectionMode::ReplicaSet {
+                            attrs.push(lang.tr("attr.replica"));
+                        }
+                        if conn.ssl.enabled {
+                            attrs.push(lang.tr("attr.tls"));
+                        }
+                        if conn.ssh.enabled {
+                            attrs.push(lang.tr("attr.ssh"));
+                        }
 
-                    let (row_rect, _) = ui.allocate_exact_size(
-                        Vec2::new(ui.available_width(), CONNECTION_ROW_HEIGHT),
-                        Sense::hover(),
-                    );
-                    row_rects.push(row_rect);
-                    ui.painter().rect_filled(row_rect, 0.0, bg);
-                    let mut row_ui = ui.new_child(
-                        UiBuilder::new()
-                            .max_rect(row_rect)
-                            .layout(Layout::left_to_right(Align::Center)),
-                    );
-                    row_ui.columns(4, |cols| {
-                        cols[0].set_min_width(COL0_W);
-                        cols[1].set_min_width(COL1_W);
-                        cols[2].set_min_width(COL2_W);
-                        cols[0].horizontal(|ui| {
-                            ui.add(icons::img(icon).fit_to_original_size(1.0));
-                            ui.label(&conn.name);
-                        });
-                        let addr_max = cols[1].available_width();
-                        let addr_disp = truncate_with_dots(&mut cols[1], &addr, addr_max);
-                        cols[1].label(&addr_disp);
-                        cols[2].label(attrs.join(", "));
-                        if conn.credential.enabled {
-                            cols[3].horizontal(|ui| {
-                                ui.add(icons::img("key_16x16").fit_to_original_size(1.0));
-                                ui.label(format!(
-                                    "{} / {}",
-                                    conn.credential.auth_source, conn.credential.user_name
-                                ));
+                        let (row_rect, _) = ui.allocate_exact_size(
+                            Vec2::new(ui.available_width(), CONNECTION_ROW_HEIGHT),
+                            Sense::hover(),
+                        );
+                        row_rects.push(row_rect);
+                        ui.painter().rect_filled(row_rect, 0.0, bg);
+                        let mut row_ui = ui.new_child(
+                            UiBuilder::new()
+                                .max_rect(row_rect)
+                                .layout(Layout::left_to_right(Align::Center)),
+                        );
+                        row_ui.columns(4, |cols| {
+                            cols[0].set_min_width(COL0_W);
+                            cols[1].set_min_width(COL1_W);
+                            cols[2].set_min_width(COL2_W);
+                            cols[0].horizontal(|ui| {
+                                ui.add(icons::img(icon).fit_to_original_size(1.0));
+                                ui.label(&conn.name);
                             });
-                        }
-                    });
-                    let resp = ui.interact(
-                        row_rect,
-                        ui.id().with(("connection_row", i)),
-                        Sense::click_and_drag(),
-                    );
+                            let addr_max = cols[1].available_width();
+                            let addr_disp = truncate_with_dots(&mut cols[1], &addr, addr_max);
+                            cols[1].label(&addr_disp);
+                            cols[2].label(attrs.join(", "));
+                            if conn.credential.enabled {
+                                cols[3].horizontal(|ui| {
+                                    ui.add(icons::img("key_16x16").fit_to_original_size(1.0));
+                                    ui.label(format!(
+                                        "{} / {}",
+                                        conn.credential.auth_source, conn.credential.user_name
+                                    ));
+                                });
+                            }
+                        });
+                        let resp = ui.interact(
+                            row_rect,
+                            ui.id().with(("connection_row", i)),
+                            Sense::click_and_drag(),
+                        );
 
-                    if resp.clicked() {
-                        new_sel = Some(i);
-                    }
-                    if resp.double_clicked() {
-                        act_connect_idx = Some(i);
-                    }
-                    if resp.drag_stopped() {
-                        drag_release = Some(i);
-                    }
-                    resp.context_menu(|ui| {
-                        if ui.button(lang.tr("dialog.conn_create")).clicked() {
-                            act_create = true;
-                            ui.close_menu();
-                        }
-                        if ui.button(lang.tr("dialog.conn_edit")).clicked() {
-                            act_edit = true;
+                        if resp.clicked() {
                             new_sel = Some(i);
-                            ui.close_menu();
                         }
-                        if ui.button(lang.tr("dialog.conn_clone")).clicked() {
-                            act_clone = true;
-                            new_sel = Some(i);
-                            ui.close_menu();
+                        if resp.double_clicked() {
+                            act_connect_idx = Some(i);
                         }
-                        if ui.button(lang.tr("dialog.conn_remove")).clicked() {
-                            act_remove = true;
-                            new_sel = Some(i);
-                            ui.close_menu();
+                        if resp.drag_stopped() {
+                            drag_release = Some(i);
                         }
-                    });
-                }
-            });
+                        resp.context_menu(|ui| {
+                            if ui.button(lang.tr("dialog.conn_create")).clicked() {
+                                act_create = true;
+                                ui.close_menu();
+                            }
+                            if ui.button(lang.tr("dialog.conn_edit")).clicked() {
+                                act_edit = true;
+                                new_sel = Some(i);
+                                ui.close_menu();
+                            }
+                            if ui.button(lang.tr("dialog.conn_clone")).clicked() {
+                                act_clone = true;
+                                new_sel = Some(i);
+                                ui.close_menu();
+                            }
+                            if ui.button(lang.tr("dialog.conn_remove")).clicked() {
+                                act_remove = true;
+                                new_sel = Some(i);
+                                ui.close_menu();
+                            }
+                        });
+                    }
+                });
             ui.separator();
 
             // 底部按钮盒：右侧 [Connect(主按钮)][Cancel]
@@ -686,7 +692,11 @@ fn render_connection_settings_dialog(ctx: &Context, state: &mut AppState) {
 }
 
 /// 返回 `Some((browse_target, 当前路径))` 表示用户点击了某个 Browse 按钮。
-fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(u8, String)> {
+fn render_connection_tab(
+    ui: &mut Ui,
+    dlg: &mut ConnectionForm,
+    lang: Lang,
+) -> Option<(u8, String)> {
     // 各组件上下行间隔不小于 8px
     ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.horizontal(|ui| {
@@ -718,18 +728,14 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
     });
     if dlg.mode == ConnectionMode::ReplicaSet {
         ui.label(lang.tr("form.members"));
-        let mut lines: Vec<String> = dlg
-            .hosts_text
-            .lines()
-            .map(|s| s.to_string())
-            .collect();
+        let mut lines: Vec<String> = dlg.hosts_text.lines().map(|s| s.to_string()).collect();
         if lines.is_empty() {
             lines.push("127.0.0.1:27017".to_string());
         }
         let mut remove_idx: Option<usize> = None;
-        for i in 0..lines.len() {
+        for (i, line) in lines.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                ui.add(TextEdit::singleline(&mut lines[i]).desired_width(220.0));
+                ui.add(TextEdit::singleline(line).desired_width(220.0));
                 if ui.button("−").clicked() {
                     remove_idx = Some(i);
                 }
@@ -767,7 +773,12 @@ fn render_connection_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> O
     None
 }
 
-fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Option<FeatureGate>) -> Option<(u8, String)> {
+fn render_auth_tab(
+    ui: &mut Ui,
+    dlg: &mut ConnectionForm,
+    lang: Lang,
+    gate: Option<FeatureGate>,
+) -> Option<(u8, String)> {
     // 各组件上下行间隔不小于 8px
     ui.spacing_mut().item_spacing.y = ui.spacing().item_spacing.y.max(12.0);
     ui.checkbox(&mut dlg.auth_enabled, lang.tr("form.auth.perform"));
@@ -783,7 +794,13 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
         ui.label(lang.tr("form.user"));
         ui.add(TextEdit::singleline(&mut dlg.user).desired_width(200.0));
     });
-    pw_row(ui, lang.tr("form.password"), &mut dlg.password, &mut dlg.show_auth_password, lang);
+    pw_row(
+        ui,
+        lang.tr("form.password"),
+        &mut dlg.password,
+        &mut dlg.show_auth_password,
+        lang,
+    );
     ui.horizontal(|ui| {
         ui.label(lang.tr("form.mechanism"));
         let mut mech = dlg.mechanism;
@@ -852,7 +869,10 @@ fn render_auth_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang, gate: Opti
     }
 
     ui.separator();
-    ui.checkbox(&mut dlg.auth_visible_dbs_enabled, lang.tr("form.auth.visible_dbs"));
+    ui.checkbox(
+        &mut dlg.auth_visible_dbs_enabled,
+        lang.tr("form.auth.visible_dbs"),
+    );
     if dlg.auth_visible_dbs_enabled {
         ui.horizontal(|ui| {
             ui.label(lang.tr("form.auth.visible_dbs_label"));
@@ -876,7 +896,7 @@ fn render_ssh_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
     }
     if dlg.mode == ConnectionMode::ReplicaSet {
         ui.colored_label(HINT_GRAY, lang.tr("form.ssh.disabled_hint"));
-        ui.set_enabled(false);
+        ui.disable();
     }
     ui.horizontal(|ui| {
         ui.label(lang.tr("form.ssh.address"));
@@ -996,7 +1016,10 @@ fn render_tls_tab(ui: &mut Ui, dlg: &mut ConnectionForm, lang: Lang) -> Option<(
             &mut dlg.show_pem_passphrase,
             lang,
         );
-        ui.checkbox(&mut dlg.ssl_ask_pem_passphrase, lang.tr("form.tls.ask_pem_pass"));
+        ui.checkbox(
+            &mut dlg.ssl_ask_pem_passphrase,
+            lang.tr("form.tls.ask_pem_pass"),
+        );
     }
 
     ui.checkbox(&mut dlg.ssl_advanced_options, lang.tr("form.tls.advanced"));
@@ -1098,10 +1121,7 @@ fn validate_document(state: &mut AppState, text: &str) {
     let lang = state.lang;
     match bson_ext::parse_document_text(text) {
         Ok(_) => state.toast(lang.tr("doc.validate_ok"), false),
-        Err(e) => state.toast(
-            &format!("{}: {}", lang.tr("common.error"), e.to_string()),
-            true,
-        ),
+        Err(e) => state.toast(&format!("{}: {}", lang.tr("common.error"), e), true),
     }
 }
 
@@ -1146,10 +1166,7 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
                 state.edit_doc_open = false;
             }
             Err(e) => {
-                state.toast(
-                    &format!("{}: {}", lang.tr("common.error"), e.to_string()),
-                    true,
-                );
+                state.toast(&format!("{}: {}", lang.tr("common.error"), e), true);
             }
         }
     }
@@ -1198,10 +1215,7 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
                 state.insert_doc_open = false;
             }
             Err(e) => {
-                state.toast(
-                    &format!("{}: {}", lang.tr("common.error"), e.to_string()),
-                    true,
-                );
+                state.toast(&format!("{}: {}", lang.tr("common.error"), e), true);
             }
         }
     }
@@ -1303,9 +1317,12 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
                 .inner_margin(Margin::same(4.0))
                 .show(ui, |ui| {
                     ui.style_mut().visuals.extreme_bg_color = SCRIPT_BG;
-                    let (fm_ranges, fm_current) = find::highlight_ranges(state, FindTarget::ViewDoc);
+                    let (fm_ranges, fm_current) =
+                        find::highlight_ranges(state, FindTarget::ViewDoc);
                     let mut layouter = |ui: &Ui, t: &str, w: f32| {
-                        syntax::highlight_with_find(ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current)
+                        syntax::highlight_with_find(
+                            ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current,
+                        )
                     };
                     ScrollArea::vertical().show(ui, |ui| {
                         let edit = TextEdit::multiline(&mut text)
@@ -1369,7 +1386,11 @@ fn render_about_dialog(ctx: &Context, state: &mut AppState) {
 fn render_version_caps_dialog(ctx: &Context, state: &mut AppState) {
     let lang = state.lang;
     // 先取出 owned 数据，规避 `state` 借用冲突。
-    let info = state.service.as_ref().and_then(|s| s.server_info()).cloned();
+    let info = state
+        .service
+        .as_ref()
+        .and_then(|s| s.server_info())
+        .cloned();
     if let Some(info) = info {
         let version = info.version;
         let edition = info.edition.clone();
@@ -1414,11 +1435,7 @@ fn render_version_caps_dialog(ctx: &Context, state: &mut AppState) {
                 ui.columns(3, |cols| {
                     for cap in &summary {
                         cols[0].label(cap.name);
-                        cols[1].label(format!(
-                            "{}: {}",
-                            lang.tr("caps.since_label"),
-                            cap.since
-                        ));
+                        cols[1].label(format!("{}: {}", lang.tr("caps.since_label"), cap.since));
                         if cap.supported {
                             cols[2].colored_label(
                                 Color32::from_rgb(0x2e, 0x7d, 0x32),
@@ -1481,16 +1498,20 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
                 if let Some(ss) = &ss {
                     // ---- 概览 ----
                     ui.heading(lang.tr("server_status.overview"));
-                    if let Some(v) = ss.get_str("version").ok() {
+                    if let Ok(v) = ss.get_str("version") {
                         ui.label(format!("{}: {}", lang.tr("server_status.version"), v));
                     }
                     let uptime = ss.get_f64("uptime").unwrap_or(0.0);
-                    ui.label(format!("{}: {:.0}", lang.tr("server_status.uptime"), uptime));
+                    ui.label(format!(
+                        "{}: {:.0}",
+                        lang.tr("server_status.uptime"),
+                        uptime
+                    ));
                     ui.separator();
 
                     // ---- 连接 ----
                     ui.heading(lang.tr("server_status.connections"));
-                    if let Some(c) = ss.get_document("connections").ok() {
+                    if let Ok(c) = ss.get_document("connections") {
                         let cur = c.get_i64("current").unwrap_or(0);
                         let avail = c.get_i64("available").unwrap_or(0);
                         ui.label(format!("{} / {}", cur, avail));
@@ -1499,16 +1520,21 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
 
                     // ---- 内存 ----
                     ui.heading(lang.tr("server_status.memory"));
-                    if let Some(m) = ss.get_document("mem").ok() {
+                    if let Ok(m) = ss.get_document("mem") {
                         let resident = m.get_i64("resident").unwrap_or(0);
                         let virt = m.get_i64("virtual").unwrap_or(0);
-                        ui.label(format!("{}: {} MB  /  {} MB", resident, virt, lang.tr("server_status.memory")));
+                        ui.label(format!(
+                            "{}: {} MB  /  {} MB",
+                            resident,
+                            virt,
+                            lang.tr("server_status.memory")
+                        ));
                     }
                     ui.separator();
 
                     // ---- 操作计数 ----
                     ui.heading(lang.tr("server_status.opcounters"));
-                    if let Some(o) = ss.get_document("opcounters").ok() {
+                    if let Ok(o) = ss.get_document("opcounters") {
                         for k in ["insert", "query", "update", "delete", "getmore", "command"] {
                             let v = o.get_i64(k).unwrap_or(0);
                             ui.label(format!("{}: {}", k, v));
@@ -1518,7 +1544,7 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
 
                     // ---- 断言 ----
                     ui.heading(lang.tr("server_status.asserts"));
-                    if let Some(a) = ss.get_document("asserts").ok() {
+                    if let Ok(a) = ss.get_document("asserts") {
                         for k in ["regular", "warning", "msg", "user", "rollovers"] {
                             let v = a.get_i64(k).unwrap_or(0);
                             ui.label(format!("{}: {}", k, v));
@@ -1530,11 +1556,11 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
                 // ---- 主机信息 ----
                 if let Some(hi) = &state.host_info_doc {
                     ui.heading(lang.tr("server_status.host"));
-                    if let Some(sys) = hi.get_document("system").ok() {
-                        if let Some(v) = sys.get_i64("numCores").ok() {
+                    if let Ok(sys) = hi.get_document("system") {
+                        if let Ok(v) = sys.get_i64("numCores") {
                             ui.label(format!("numCores: {}", v));
                         }
-                        if let Some(v) = sys.get_i64("memSizeMB").ok() {
+                        if let Ok(v) = sys.get_i64("memSizeMB") {
                             ui.label(format!("memSizeMB: {}", v));
                         }
                     }
@@ -1545,11 +1571,12 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
                 ui.heading(lang.tr("server_status.replset"));
                 match &state.repl_status_doc {
                     Some(rs) => {
-                        if let Some(members) = rs.get_array("members").ok() {
+                        if let Ok(members) = rs.get_array("members") {
                             for m in members {
                                 if let Some(doc) = m.as_document() {
                                     let name = doc.get_str("name").unwrap_or_default().to_string();
-                                    let state_str = doc.get_str("stateStr").unwrap_or_default().to_string();
+                                    let state_str =
+                                        doc.get_str("stateStr").unwrap_or_default().to_string();
                                     let health = doc.get_f64("health").unwrap_or(0.0);
                                     ui.label(format!(
                                         "{}  [{}]  health={}",
@@ -1557,7 +1584,7 @@ fn render_server_status_dialog(ctx: &Context, state: &mut AppState) {
                                     ));
                                 }
                             }
-                        } else if let Some(set) = rs.get_str("set").ok() {
+                        } else if let Ok(set) = rs.get_str("set") {
                             ui.label(format!("replica set: {} (无 members 字段)", set));
                         } else {
                             ui.label(lang.tr("server_status.standalone_or_err"));
@@ -1674,7 +1701,12 @@ fn render_indexes_dialog(ctx: &Context, state: &mut AppState) {
         .default_size([480.0, 380.0])
         .show(ctx, |ui| {
             if let Some(info) = &state.server_info {
-                ui.label(format!("{} {}  {}", lang.tr("caps.version_label"), info.version, info.edition));
+                ui.label(format!(
+                    "{} {}  {}",
+                    lang.tr("caps.version_label"),
+                    info.version,
+                    info.edition
+                ));
             }
             ui.horizontal(|ui| {
                 ui.heading(lang.tr("index.existing"));
@@ -1778,7 +1810,12 @@ fn render_users_dialog(ctx: &Context, state: &mut AppState) {
         .default_size([480.0, 380.0])
         .show(ctx, |ui| {
             if let Some(info) = &state.server_info {
-                ui.label(format!("{} {}  {}", lang.tr("caps.version_label"), info.version, info.edition));
+                ui.label(format!(
+                    "{} {}  {}",
+                    lang.tr("caps.version_label"),
+                    info.version,
+                    info.edition
+                ));
             }
             ui.horizontal(|ui| {
                 ui.heading(lang.tr("users.caption"));
@@ -1966,10 +2003,7 @@ fn render_toast(ctx: &Context, state: &mut AppState) {
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
-                ui.colored_label(
-                    if is_err { Color32::RED } else { Color32::GREEN },
-                    &msg,
-                );
+                ui.colored_label(if is_err { Color32::RED } else { Color32::GREEN }, &msg);
                 ui.button(lang.tr("common.ok")).clicked()
             });
         if cleared.and_then(|r| r.inner).unwrap_or(false) {

@@ -13,8 +13,8 @@
 
 use mongodb::bson::doc;
 use mongodb::bson::Document;
-use mongodb::IndexModel;
 use mongodb::options::IndexOptions;
+use mongodb::IndexModel;
 // mongodb 的 Cursor 通过 `TryStreamExt::try_next` 逐个取出（返回 Result），
 // 该 trait 来自 futures-util；本 crate 需显式引入才能调用。
 use futures_util::TryStreamExt;
@@ -28,6 +28,7 @@ use rubo3t_core::settings::ConnectionSettings;
 use rubo3t_core::version::{FeatureGate, ServerVersion, VersionCapability};
 
 /// MongoDB 服务封装。
+#[derive(Clone)]
 pub struct MongoService {
     client: Client,
     settings: ConnectionSettings,
@@ -72,7 +73,9 @@ impl MongoService {
 
     /// 能力门控（供 UI 判断版本差异）。
     pub fn feature_gate(&self) -> Option<FeatureGate> {
-        self.server_info.as_ref().map(|s| FeatureGate::new(s.version))
+        self.server_info
+            .as_ref()
+            .map(|s| FeatureGate::new(s.version))
     }
 
     pub fn settings(&self) -> &ConnectionSettings {
@@ -95,10 +98,7 @@ impl MongoService {
             for d in dbs {
                 if let bson::Bson::Document(d) = d {
                     let name = d.get_str("name").unwrap_or_default().to_string();
-                    let size = d
-                        .get("sizeOnDisk")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0) as u64;
+                    let size = d.get("sizeOnDisk").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
                     out.push(DatabaseInfo {
                         name,
                         size_on_disk: size,
@@ -108,11 +108,7 @@ impl MongoService {
         }
         if out.is_empty() {
             // 退化方案：仅列名称
-            let names = self
-                .client
-                .list_database_names()
-                .await
-                .map_err(map_err)?;
+            let names = self.client.list_database_names().await.map_err(map_err)?;
             out = names
                 .into_iter()
                 .map(|n| DatabaseInfo {
@@ -200,10 +196,7 @@ impl MongoService {
     /// 插入一条文档。
     pub async fn insert_one(&self, db: &str, coll: &str, doc: &Document) -> RuboResult<()> {
         let collection: mongodb::Collection<Document> = self.database(db).collection(coll);
-        collection
-            .insert_one(doc.clone())
-            .await
-            .map_err(map_err)?;
+        collection.insert_one(doc.clone()).await.map_err(map_err)?;
         Ok(())
     }
 
@@ -282,10 +275,7 @@ impl MongoService {
     /// 删除索引。
     pub async fn drop_index(&self, db: &str, coll: &str, name: &str) -> RuboResult<()> {
         let collection: mongodb::Collection<Document> = self.database(db).collection(coll);
-        collection
-            .drop_index(name.to_string())
-            .await
-            .map_err(map_err)?;
+        collection.drop_index(name).await.map_err(map_err)?;
         Ok(())
     }
 
@@ -307,8 +297,9 @@ impl MongoService {
                         .map(|arr| {
                             arr.iter()
                                 .filter_map(|r| {
-                                    r.as_document()
-                                        .and_then(|doc| doc.get_str("role").ok().map(|s| s.to_string()))
+                                    r.as_document().and_then(|doc| {
+                                        doc.get_str("role").ok().map(|s| s.to_string())
+                                    })
                                 })
                                 .collect()
                         })
@@ -327,17 +318,16 @@ impl MongoService {
     /// 执行任意命令（Shell / 诊断用）。返回原始文档。
     pub async fn run_command(&self, db: &str, cmd: &Document) -> RuboResult<Document> {
         let database = self.database(db);
-        let res = database
-            .run_command(cmd.clone())
-            .await
-            .map_err(map_err)?;
+        let res = database.run_command(cmd.clone()).await.map_err(map_err)?;
         Ok(res)
     }
 
     /// 服务器运行状态统计（connections / memory / opcounters / asserts 等）。
     pub async fn server_status(&self, db: &str) -> RuboResult<Document> {
         let d = self.database(db);
-        d.run_command(doc! { "serverStatus": 1 }).await.map_err(map_err)
+        d.run_command(doc! { "serverStatus": 1 })
+            .await
+            .map_err(map_err)
     }
 
     /// 主机信息（CPU/内存/内核）。
@@ -349,13 +339,17 @@ impl MongoService {
     /// 副本集状态（含成员拓扑）；单机实例会报错，调用方需容错。
     pub async fn repl_set_status(&self, db: &str) -> RuboResult<Document> {
         let d = self.database(db);
-        d.run_command(doc! { "replSetGetStatus": 1 }).await.map_err(map_err)
+        d.run_command(doc! { "replSetGetStatus": 1 })
+            .await
+            .map_err(map_err)
     }
 
     /// 启动命令行参数。
     pub async fn cmd_line_opts(&self, db: &str) -> RuboResult<Document> {
         let d = self.database(db);
-        d.run_command(doc! { "getCmdLineOpts": 1 }).await.map_err(map_err)
+        d.run_command(doc! { "getCmdLineOpts": 1 })
+            .await
+            .map_err(map_err)
     }
 
     /// 删除集合。
@@ -473,9 +467,11 @@ mod tests {
 
     #[tokio::test]
     async fn generated_uri_with_options_parses() {
-        let mut settings = ConnectionSettings::default();
-        settings.hosts = vec![Host::new("localhost", 27017)];
-        settings.replica_set_name = Some("rs0".into());
+        let settings = ConnectionSettings {
+            hosts: vec![Host::new("localhost", 27017)],
+            replica_set_name: Some("rs0".into()),
+            ..Default::default()
+        };
 
         let uri = settings.build_uri();
         mongodb::options::ClientOptions::parse(&uri)

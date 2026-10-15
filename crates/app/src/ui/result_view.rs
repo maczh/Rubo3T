@@ -155,14 +155,24 @@ fn collect_columns(docs: &[Document]) -> Vec<String> {
 fn measure(ui: &Ui, text: &str) -> f32 {
     let style = ui.style();
     ui.fonts(|f| {
-        f.layout_no_wrap(text.to_string(), egui::TextStyle::Body.resolve(&style), Color32::WHITE)
-            .size()
-            .x
+        f.layout_no_wrap(
+            text.to_string(),
+            egui::TextStyle::Body.resolve(style),
+            Color32::WHITE,
+        )
+        .size()
+        .x
     })
 }
 
 /// 绘制一个单元格：背景填充 + 左对齐文字（左内边距 4）+ 右侧 1px 分隔线。
-fn draw_cell(painter: &Painter, rect: egui::Rect, galley: Arc<Galley>, bg: Color32, right_sep: bool) {
+fn draw_cell(
+    painter: &Painter,
+    rect: egui::Rect,
+    galley: Arc<Galley>,
+    bg: Color32,
+    right_sep: bool,
+) {
     painter.rect_filled(rect, Rounding::ZERO, bg);
     let pos = egui::pos2(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0);
     painter.galley(pos, galley, Color32::PLACEHOLDER);
@@ -260,16 +270,36 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
     let mut x = hrect.left();
     {
         let galley = ui.fonts(|f| {
-            f.layout_no_wrap("#".to_string(), egui::TextStyle::Body.resolve(&style), ui.visuals().strong_text_color())
+            f.layout_no_wrap(
+                "#".to_string(),
+                egui::TextStyle::Body.resolve(style),
+                ui.visuals().strong_text_color(),
+            )
         });
-        draw_cell(&hpainter, egui::Rect::from_min_size(egui::pos2(x, hrect.top()), Vec2::new(row_num_w, header_h)), galley, HEADER_BG, true);
+        draw_cell(
+            hpainter,
+            egui::Rect::from_min_size(egui::pos2(x, hrect.top()), Vec2::new(row_num_w, header_h)),
+            galley,
+            HEADER_BG,
+            true,
+        );
     }
     x += row_num_w;
     for (i, c) in cols.iter().enumerate() {
         let galley = ui.fonts(|f| {
-            f.layout_no_wrap(c.to_string(), egui::TextStyle::Body.resolve(&style), ui.visuals().strong_text_color())
+            f.layout_no_wrap(
+                c.to_string(),
+                egui::TextStyle::Body.resolve(style),
+                ui.visuals().strong_text_color(),
+            )
         });
-        draw_cell(&hpainter, egui::Rect::from_min_size(egui::pos2(x, hrect.top()), Vec2::new(col_w[i], header_h)), galley, HEADER_BG, true);
+        draw_cell(
+            hpainter,
+            egui::Rect::from_min_size(egui::pos2(x, hrect.top()), Vec2::new(col_w[i], header_h)),
+            galley,
+            HEADER_BG,
+            true,
+        );
         x += col_w[i];
     }
     ui.separator();
@@ -278,7 +308,7 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
     ScrollArea::vertical().show_rows(ui, row_height, docs.len(), |ui, row_range| {
         let font_id = {
             let style = ui.style();
-            egui::TextStyle::Body.resolve(&style)
+            egui::TextStyle::Body.resolve(style)
         };
         for i in row_range {
             if i >= docs.len() {
@@ -286,7 +316,8 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
             }
             let doc = &docs[i];
             let selected = state.selected_doc == Some(i);
-            let (rect, response) = ui.allocate_at_least(Vec2::new(avail, row_height), Sense::click());
+            let (rect, response) =
+                ui.allocate_at_least(Vec2::new(avail, row_height), Sense::click());
             if response.clicked() {
                 clicked = Some(i);
             }
@@ -297,18 +328,41 @@ pub fn table_view(ui: &mut Ui, state: &mut AppState) -> Option<usize> {
             } else {
                 ui.visuals().panel_fill
             };
-            let fg = if selected { Color32::WHITE } else { ui.visuals().text_color() };
+            let fg = if selected {
+                Color32::WHITE
+            } else {
+                ui.visuals().text_color()
+            };
             let painter = ui.painter_at(rect);
             let mut x = rect.left();
             {
-                let galley = ui.fonts(|f| f.layout_no_wrap(format!("{}", i + 1), font_id.clone(), fg));
-                draw_cell(&painter, egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(row_num_w, row_height)), galley, bg, true);
+                let galley =
+                    ui.fonts(|f| f.layout_no_wrap(format!("{}", i + 1), font_id.clone(), fg));
+                draw_cell(
+                    &painter,
+                    egui::Rect::from_min_size(
+                        egui::pos2(x, rect.top()),
+                        Vec2::new(row_num_w, row_height),
+                    ),
+                    galley,
+                    bg,
+                    true,
+                );
             }
             x += row_num_w;
             for (ci, c) in cols.iter().enumerate() {
                 let v = doc.get(c).unwrap_or(&Bson::Null);
                 let galley = ui.fonts(|f| f.layout_no_wrap(cell_text(v), font_id.clone(), fg));
-                draw_cell(&painter, egui::Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(col_w[ci], row_height)), galley, bg, true);
+                draw_cell(
+                    &painter,
+                    egui::Rect::from_min_size(
+                        egui::pos2(x, rect.top()),
+                        Vec2::new(col_w[ci], row_height),
+                    ),
+                    galley,
+                    bg,
+                    true,
+                );
                 x += col_w[ci];
             }
             let idx = i;
@@ -415,10 +469,7 @@ pub fn tree_view(ui: &mut Ui, state: &mut AppState) {
     let mut root_clicked: Option<usize> = None;
     ScrollArea::vertical().show(ui, |ui| {
         for (i, doc) in docs.iter().enumerate() {
-            let id_val = doc
-                .get("_id")
-                .map(value_text)
-                .unwrap_or_default();
+            let id_val = doc.get("_id").map(value_text).unwrap_or_default();
             let root_key = format!("({}) {}", i + 1, id_val);
             let root_path = format!("d{}", i);
             let clicked = draw_tree_node(
@@ -451,8 +502,22 @@ fn draw_tree_header(ui: &mut Ui) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, Rounding::ZERO, HEADER_BG);
     let strong = ui.visuals().strong_text_color();
-    tree_text(ui, &painter, rect.left() + 6.0, rect.center().y, "Key", strong);
-    tree_text(ui, &painter, rect.left() + key_w + 6.0, rect.center().y, "Value", strong);
+    tree_text(
+        ui,
+        &painter,
+        rect.left() + 6.0,
+        rect.center().y,
+        "Key",
+        strong,
+    );
+    tree_text(
+        ui,
+        &painter,
+        rect.left() + key_w + 6.0,
+        rect.center().y,
+        "Value",
+        strong,
+    );
     tree_text(
         ui,
         &painter,
@@ -465,6 +530,8 @@ fn draw_tree_header(ui: &mut Ui) {
 
 /// 递归绘制一个树节点（一行），并在展开时递归绘制其子节点。
 /// 返回该节点是否为文档根行被点击（用于选中文档并在文本视图中展示）。
+// Recursive renderer carries the node identity, geometry and shared interaction state.
+#[allow(clippy::too_many_arguments)]
 fn draw_tree_node(
     ui: &mut Ui,
     doc_idx: usize,
@@ -481,7 +548,8 @@ fn draw_tree_node(
     let value_w = (avail * 0.40).max(60.0);
 
     let expandable = matches!(value, Bson::Document(_) | Bson::Array(_));
-    let open_id = Id::new(("tree_open", id_path));
+    let tab_id = state.tabs.get(state.active_tab).map(|tab| tab.id);
+    let open_id = Id::new(("tree_open", tab_id, id_path));
     let is_open = if expandable {
         ui.ctx()
             .data(|d| d.get_temp::<bool>(open_id))
@@ -552,7 +620,11 @@ fn draw_tree_node(
 
     // Type 文本（灰色，固定列）
     let type_x = rect.left() + key_w + value_w;
-    let type_color = if selected { Color32::WHITE } else { Color32::GRAY };
+    let type_color = if selected {
+        Color32::WHITE
+    } else {
+        Color32::GRAY
+    };
     tree_text(
         ui,
         &painter,
@@ -618,9 +690,8 @@ fn draw_tree_node(
 /// 左中对齐绘制一行文本（用于在手动布局的树行上绘制 Key/Value/Type）。
 fn tree_text(ui: &Ui, painter: &Painter, x: f32, center_y: f32, text: &str, color: Color32) {
     let style = ui.style();
-    let fid = egui::TextStyle::Body.resolve(&style);
-    let galley = ui
-        .fonts(|f| f.layout_no_wrap(text.to_string(), fid, color));
+    let fid = egui::TextStyle::Body.resolve(style);
+    let galley = ui.fonts(|f| f.layout_no_wrap(text.to_string(), fid, color));
     let pos = Pos2::new(x, center_y - galley.size().y / 2.0);
     painter.galley(pos, galley, color);
 }

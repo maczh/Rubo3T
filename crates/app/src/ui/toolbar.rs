@@ -35,13 +35,10 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             }
             // 下拉箭头触发区：点击弹出已保存连接的快速连接菜单。
             let connect_id = egui::Id::new("toolbar_connect_menu");
-            let arrow_resp =
-                ui.allocate_response(egui::vec2(12.0, 20.0), egui::Sense::click());
+            let arrow_resp = ui.allocate_response(egui::vec2(12.0, 20.0), egui::Sense::click());
             // 画向下小三角（hover 或菜单已开时先画浅灰高亮底）。
             let painter = ui.painter();
-            if arrow_resp.hovered()
-                || ui.ctx().memory(|m| m.is_popup_open(connect_id))
-            {
+            if arrow_resp.hovered() || ui.ctx().memory(|m| m.is_popup_open(connect_id)) {
                 painter.rect_filled(
                     arrow_resp.rect,
                     egui::Rounding::ZERO,
@@ -120,10 +117,7 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             );
             // 打开脚本（程序化文件夹图标）
             if ui
-                .add(
-                    ImageButton::new(icons::img_size("open_16x16", 16.0))
-                        .frame(false),
-                )
+                .add(ImageButton::new(icons::img_size("open_16x16", 16.0)).frame(false))
                 .on_hover_text(lang.tr("toolbar.open"))
                 .clicked()
             {
@@ -131,10 +125,7 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             }
             // 保存脚本（程序化软盘图标）
             if ui
-                .add(
-                    ImageButton::new(icons::img_size("save_16x16", 16.0))
-                        .frame(false),
-                )
+                .add(ImageButton::new(icons::img_size("save_16x16", 16.0)).frame(false))
                 .on_hover_text(lang.tr("toolbar.save"))
                 .clicked()
             {
@@ -144,7 +135,10 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             ui.separator();
             // 执行（图标按钮）
             if ui
-                .add(toolbar_icon("execute_24x24"))
+                .add_enabled(
+                    state.service.is_some() && !state.query_running(),
+                    toolbar_icon("execute_24x24"),
+                )
                 .on_hover_text(lang.tr("toolbar.execute"))
                 .clicked()
             {
@@ -152,7 +146,7 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             }
             // 停止（图标按钮）
             if ui
-                .add(toolbar_icon("stop_24x24"))
+                .add_enabled(state.query_running(), toolbar_icon("stop_24x24"))
                 .on_hover_text(lang.tr("toolbar.stop"))
                 .clicked()
             {
@@ -160,11 +154,14 @@ pub fn render(ctx: &Context, state: &mut AppState) {
             }
             // 旋转结果方向（图标按钮）
             if ui
-                .add(toolbar_icon("rotate_16x16"))
+                .add_enabled(false, toolbar_icon("rotate_16x16"))
                 .on_hover_text(lang.tr("toolbar.rotate"))
                 .clicked()
             {
                 act_rotate = true;
+            }
+            if state.query_running() {
+                ui.spinner();
             }
         });
     });
@@ -203,29 +200,16 @@ pub fn render(ctx: &Context, state: &mut AppState) {
         state.conn_dlg_open = true;
     }
     if act_open {
-        let path = script_path(state);
-        match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                state.script_text = text;
-                state.sync_to_active_tab();
-                state.toast(&format!("{}: {}", lang.tr("toolbar.open"), path.display()), false);
-            }
-            Err(_) => state.toast(lang.tr("query.script_empty"), true),
-        }
+        open_script(state);
     }
     if act_save {
-        let path = script_path(state);
-        if let Err(e) = std::fs::write(&path, &state.script_text) {
-            state.toast(&format!("{}: {}", lang.tr("toolbar.save"), e), true);
-        } else {
-            state.toast(&format!("{}: {}", lang.tr("toolbar.save"), path.display()), false);
-        }
+        save_script(state);
     }
     if act_run {
         state.run_current_query();
     }
     if act_stop {
-        // stop not implemented yet
+        state.stop_query();
     }
     if act_rotate {
         // orientation not implemented yet
@@ -244,4 +228,37 @@ fn script_path(state: &AppState) -> PathBuf {
 /// 构造一个无边框的工具栏图标按钮（仅图片，悬停/按下高亮由 egui 默认处理）。
 fn toolbar_icon(icon: &str) -> ImageButton<'static> {
     ImageButton::new(icons::img(icon).fit_to_original_size(1.0)).frame(false)
+}
+
+pub fn open_script(state: &mut AppState) {
+    let lang = state.lang;
+    let path = script_path(state);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            state.script_text = text;
+            state.sync_to_active_tab();
+            state.toast(
+                &format!("{}: {}", lang.tr("toolbar.open"), path.display()),
+                false,
+            );
+        }
+        Err(_) => state.toast(lang.tr("query.script_empty"), true),
+    }
+}
+
+pub fn save_script(state: &mut AppState) {
+    let lang = state.lang;
+    let path = script_path(state);
+    if let Err(e) = std::fs::write(&path, &state.script_text) {
+        state.toast(&format!("{}: {}", lang.tr("toolbar.save"), e), true);
+    } else {
+        state.sync_to_active_tab();
+        if let Some(tab) = state.tabs.get_mut(state.active_tab) {
+            tab.dirty = false;
+        }
+        state.toast(
+            &format!("{}: {}", lang.tr("toolbar.save"), path.display()),
+            false,
+        );
+    }
 }

@@ -23,7 +23,7 @@ const TAB_BAR_BG: Color32 = Color32::from_rgb(0xF0, 0xF0, 0xF0);
 const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
 const SCRIPT_FG: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
 /// 顶部状态栏文字灰（#A6A6A6）。
-const STATUS_GRAY: Color32 = Color32::from_rgb(0xA6, 0xA6, 0xA6);
+const STATUS_GRAY: Color32 = Color32::from_rgb(0x66, 0x66, 0x66);
 
 pub fn render(ctx: &Context, state: &mut AppState) {
     let _lang = state.lang;
@@ -35,7 +35,9 @@ pub fn render(ctx: &Context, state: &mut AppState) {
     // 中央：查询区 + 输出头 + 结果视图，或欢迎页
     CentralPanel::default().show(ctx, |ui| {
         let active = state.tabs.get(state.active_tab);
-        let is_welcome = active.map(|t| t.db.is_empty() && t.coll.is_empty()).unwrap_or(true);
+        let is_welcome = active
+            .map(|t| t.db.is_empty() && t.coll.is_empty())
+            .unwrap_or(true);
         if is_welcome {
             render_welcome(ui, state);
         } else {
@@ -67,6 +69,7 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
 
     let mut switch_idx: Option<usize> = None;
     let mut close_idx: Option<usize> = None;
+    let mut context_idx = None;
     let mut new_shell = false;
     let mut reexec = false;
     let mut duplicate = false;
@@ -85,7 +88,7 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                 ui.add_space(4.0); // 第一个 tab margin-left: 4px
             }
             for (idx, (id, title, is_welcome, is_active)) in tabs_info.iter().enumerate() {
-                let text_w = measure(ui, &title);
+                let text_w = measure(ui, title);
                 let close_w = if *is_welcome { 0.0 } else { 16.0 };
                 let pad_l = 8.0;
                 let pad_r = 4.0;
@@ -93,8 +96,8 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                 let w = content.clamp(60.0, 200.0);
                 // 超过 200 时要进一步按宽度截断标题
                 let avail = w - pad_l - pad_r - close_w;
-                let title = if measure(ui, &title) > avail {
-                    truncate_to_width(ui, &title, avail)
+                let title = if measure(ui, title) > avail {
+                    truncate_to_width(ui, title, avail)
                 } else {
                     title.clone()
                 };
@@ -121,8 +124,8 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                         Vec2::new(15.0, 15.0),
                     ))
                 };
-                let close_resp = close_rect
-                    .map(|r| ui.interact(r, Id::new(("tabclose", *id)), Sense::click()));
+                let close_resp =
+                    close_rect.map(|r| ui.interact(r, Id::new(("tabclose", *id)), Sense::click()));
 
                 // 绘制标签外观
                 paint_tab(ui, paint_rect, *is_active, tab_resp.hovered(), TAB_BAR_BG);
@@ -132,7 +135,7 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                 let galley = ui.fonts(|f| {
                     f.layout_no_wrap(
                         title.clone(),
-                        egui::TextStyle::Body.resolve(&style),
+                        egui::TextStyle::Body.resolve(style),
                         Color32::from_rgb(0x33, 0x33, 0x33),
                     )
                 });
@@ -176,7 +179,9 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                 }
 
                 if do_close {
-                    close_idx = Some(idx);
+                    if !*is_welcome {
+                        close_idx = Some(idx);
+                    }
                 } else if do_switch {
                     switch_idx = Some(idx);
                 }
@@ -186,15 +191,18 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
                     let idx_for_menu = idx;
                     tab_resp.context_menu(|ui| {
                         if ui.button(lang.tr("tab.new_shell")).clicked() {
+                            context_idx = Some(idx_for_menu);
                             new_shell = true;
                             ui.close_menu();
                         }
                         ui.separator();
                         if ui.button(lang.tr("tab.reexecute")).clicked() {
+                            context_idx = Some(idx_for_menu);
                             reexec = true;
                             ui.close_menu();
                         }
                         if ui.button(lang.tr("tab.duplicate")).clicked() {
+                            context_idx = Some(idx_for_menu);
                             duplicate = true;
                             ui.close_menu();
                         }
@@ -233,7 +241,13 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
     if let Some(idx) = close_right {
         state.close_tabs_to_right(idx);
     }
+    if let Some(idx) = context_idx {
+        state.sync_to_active_tab();
+        state.active_tab = idx;
+        state.sync_from_active_tab();
+    }
     if new_shell {
+        state.sync_to_active_tab();
         let db = state
             .tabs
             .get(state.active_tab)
@@ -256,7 +270,7 @@ fn render_tabs(ui: &mut Ui, state: &mut AppState) {
         state.sync_from_active_tab();
     }
     if reexec {
-        state.run_query();
+        state.run_current_query();
     }
     if duplicate {
         if let Some(tab) = state.tabs.get(state.active_tab).cloned() {
@@ -291,12 +305,16 @@ fn paint_tab(ui: &Ui, rect: Rect, selected: bool, hovered: bool, bg: Color32) {
             let y0 = rect.top() + rect.height() * t0;
             let y1 = rect.top() + rect.height() * t1;
             let band = Rect::from_min_max(Pos2::new(rect.left(), y0), Pos2::new(rect.right(), y1));
-            ui.painter().rect_filled(band, Rounding::ZERO, gradient_color(t0));
+            ui.painter()
+                .rect_filled(band, Rounding::ZERO, gradient_color(t0));
         }
         // 用背景色切掉顶部两个圆角
         let c = 6.0_f32;
-        ui.painter()
-            .rect_filled(Rect::from_min_size(rect.min, Vec2::new(c, c)), Rounding::ZERO, bg);
+        ui.painter().rect_filled(
+            Rect::from_min_size(rect.min, Vec2::new(c, c)),
+            Rounding::ZERO,
+            bg,
+        );
         ui.painter().rect_filled(
             Rect::from_min_size(Pos2::new(rect.right() - c, rect.top()), Vec2::new(c, c)),
             Rounding::ZERO,
@@ -363,14 +381,12 @@ fn tab_title(tab: &QueryTab) -> String {
 // ============================================================ 查询区
 
 fn render_query_area(ui: &mut Ui, state: &mut AppState) {
-    let frame = Frame::none()
-        .fill(Color32::WHITE)
-        .inner_margin(Margin {
-            top: 5.0,
-            right: 1.0,
-            bottom: 5.0,
-            left: 5.0,
-        });
+    let frame = Frame::none().fill(Color32::WHITE).inner_margin(Margin {
+        top: 5.0,
+        right: 1.0,
+        bottom: 5.0,
+        left: 5.0,
+    });
     frame.show(ui, |ui| {
         render_top_status_bar(ui, state);
         render_query_mode_toggle(ui, state);
@@ -383,7 +399,7 @@ fn render_query_area(ui: &mut Ui, state: &mut AppState) {
 fn render_top_status_bar(ui: &mut Ui, state: &mut AppState) {
     let _lang = state.lang;
     ui.add_space(7.0);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.style_mut().spacing.item_spacing.x = 0.0;
         // connect 图标 + 连接名
         ui.add(icons::img_size("connect_24x24", 16.0));
@@ -408,10 +424,7 @@ fn render_top_status_bar(ui: &mut Ui, state: &mut AppState) {
             .map(|(d, _)| d)
             .unwrap_or_default();
         let db_valid = !db.is_empty();
-        ui.colored_label(
-            if db_valid { STATUS_GRAY } else { Color32::RED },
-            db,
-        );
+        ui.colored_label(if db_valid { STATUS_GRAY } else { Color32::RED }, db);
     });
     ui.add_space(3.0);
 }
@@ -546,32 +559,55 @@ fn render_output_header(ui: &mut Ui, state: &mut AppState) {
         .unwrap_or(0);
     let secs = qtime as f64 / 1000.0;
 
-    ui.horizontal(|ui| {
-        // 左侧：集合名 + 耗时
+    let compact = ui.available_width() < 640.0;
+    ui.horizontal_wrapped(|ui| {
         if !coll.is_empty() {
             ui.add(icons::img_size("collection_16x16", 16.0));
-            ui.add_space(2.0);
-            ui.label(coll.clone());
+            ui.label(&coll);
         }
-        ui.add_space(8.0);
         ui.add(icons::img_size("time_16x16", 16.0));
-        ui.add_space(2.0);
-        ui.label(format!("{:.3} sec.", secs));
-
-        // 右侧：分页 + 竖线 + 视图按钮
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            render_view_buttons(ui, state);
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-            render_paging(ui, state);
-        });
+        ui.label(format!("{secs:.3} sec."));
+        ui.weak(format!("{}", state.documents.len()));
+        if !compact {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                render_view_buttons(ui, state);
+                ui.separator();
+                render_paging(ui, state);
+            });
+        }
     });
+    if compact {
+        ScrollArea::horizontal()
+            .id_salt("output_tools")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    render_view_buttons(ui, state);
+                    ui.separator();
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        render_paging(ui, state)
+                    });
+                });
+            });
+    }
+    if !state.current_query_msg.is_empty() {
+        ui.label(&state.current_query_msg);
+    }
     ui.separator();
 }
 
 /// 分页控件：◀ [skip] [batch] ▶。
 fn render_paging(ui: &mut Ui, state: &mut AppState) {
+    ui.add_enabled_ui(
+        state.query_mode == QueryMode::Find && !state.query_running(),
+        |ui| {
+            render_paging_controls(ui, state);
+        },
+    )
+    .response
+    .on_disabled_hover_text(state.lang.tr("paging.find_only"));
+}
+
+fn render_paging_controls(ui: &mut Ui, state: &mut AppState) {
     let lang = state.lang;
     // ▶（右侧先加，因 right_to_left 布局）
     if ui
@@ -579,13 +615,14 @@ fn render_paging(ui: &mut Ui, state: &mut AppState) {
         .on_hover_text(lang.tr("query.next"))
         .clicked()
     {
-        state.skip += state.limit;
+        state.skip = state.skip.saturating_add(state.limit);
         state.skip_input = state.skip.to_string();
         state.run_query_paged();
     }
     // batch 输入框（批量大小）
     let batch_resp = ui.add(
         TextEdit::singleline(&mut state.batch_input)
+            .id_salt("paging_batch")
             .desired_width(64.0)
             .horizontal_align(Align::Center),
     );
@@ -600,6 +637,7 @@ fn render_paging(ui: &mut Ui, state: &mut AppState) {
     // skip 输入框
     let skip_resp = ui.add(
         TextEdit::singleline(&mut state.skip_input)
+            .id_salt("paging_skip")
             .desired_width(64.0)
             .horizontal_align(Align::Center),
     );
@@ -674,21 +712,29 @@ fn render_view_buttons(ui: &mut Ui, state: &mut AppState) {
 
 fn render_welcome(ui: &mut Ui, state: &mut AppState) {
     let lang = state.lang;
-    ui.vertical_centered(|ui| {
-        ui.add_space(40.0);
-        ui.add(icons::img("welcome_tab_icon").fit_to_original_size(1.0));
-        ui.add_space(8.0);
-        ui.heading(lang.tr("welcome.heading"));
-        ui.label(lang.tr("welcome.sub"));
-        ui.add_space(10.0);
-        if ui.button(lang.tr("welcome.open_connect")).clicked() {
-            state.conn_dlg = crate::form::ConnectionForm::default();
-            state.conn_dlg_selected = None;
-            state.conn_dlg_mode = crate::app::ConnDlgMode::List;
-            state.conn_dlg_open = true;
-        }
-        ui.add_space(10.0);
-        ui.label(lang.tr("welcome.tip"));
+    ScrollArea::vertical().show(ui, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.add_space(24.0);
+            ui.add(icons::img("welcome_tab_icon").fit_to_original_size(1.0));
+            ui.add_space(8.0);
+            ui.heading(lang.tr("welcome.heading"));
+            ui.label(lang.tr("welcome.sub"));
+            ui.add_space(10.0);
+            let selection = ui.visuals().selection;
+            let connect = Button::new(
+                egui::RichText::new(lang.tr("welcome.open_connect")).color(selection.stroke.color),
+            )
+            .fill(selection.bg_fill)
+            .min_size(Vec2::new(160.0, 30.0));
+            if ui.add(connect).clicked() {
+                state.conn_dlg = crate::form::ConnectionForm::default();
+                state.conn_dlg_selected = None;
+                state.conn_dlg_mode = crate::app::ConnDlgMode::List;
+                state.conn_dlg_open = true;
+            }
+            ui.add_space(10.0);
+            ui.label(lang.tr("welcome.tip"));
+        });
     });
 }
 
@@ -751,7 +797,7 @@ fn measure(ui: &Ui, text: &str) -> f32 {
     ui.fonts(|f| {
         f.layout_no_wrap(
             text.to_string(),
-            egui::TextStyle::Body.resolve(&style),
+            egui::TextStyle::Body.resolve(style),
             Color32::WHITE,
         )
         .size()
@@ -765,8 +811,8 @@ fn truncate_to_width(ui: &Ui, text: &str, max_w: f32) -> String {
         return text.to_string();
     }
     let mut s = text.to_string();
-    while !s.is_empty() && measure(ui, &s) > max_w {
+    while !s.is_empty() && measure(ui, &format!("{s}\u{2026}")) > max_w {
         s.pop();
     }
-    s
+    format!("{s}\u{2026}")
 }

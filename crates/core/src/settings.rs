@@ -48,11 +48,25 @@ impl Host {
 
     /// 解析 `host:port` 字符串；缺省端口回退到 27017。
     pub fn parse(s: &str) -> Option<Host> {
-        let (host, port) = match s.rsplit_once(':') {
-            Some((h, p)) => (h.to_string(), p.parse::<u16>().ok()?),
-            None => (s.to_string(), 27017),
+        let s = s.trim();
+        let (host, port) = if let Some(tail) = s.strip_prefix('[') {
+            let (address, suffix) = tail.split_once(']')?;
+            address.parse::<std::net::Ipv6Addr>().ok()?;
+            let port = if suffix.is_empty() {
+                27017
+            } else {
+                suffix.strip_prefix(':')?.parse().ok()?
+            };
+            (address.to_owned(), port)
+        } else if s.parse::<std::net::Ipv6Addr>().is_ok() {
+            (s.to_owned(), 27017)
+        } else {
+            match s.rsplit_once(':') {
+                Some((h, p)) => (h.to_owned(), p.parse().ok()?),
+                None => (s.to_owned(), 27017),
+            }
         };
-        if host.is_empty() {
+        if host.is_empty() || port == 0 {
             return None;
         }
         Some(Host::new(host, port))
@@ -61,7 +75,11 @@ impl Host {
 
 impl std::fmt::Display for Host {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.host, self.port)
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            write!(f, "[{}]:{}", self.host, self.port)
+        } else {
+            write!(f, "{}:{}", self.host, self.port)
+        }
     }
 }
 
@@ -103,7 +121,7 @@ impl Default for CredentialSettings {
 }
 
 /// TLS / SSL 设置。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SslSettings {
     pub enabled: bool,
     /// 允许自签名 / 无效证书（对应 `tlsAllowInvalidCertificates`）。
@@ -134,24 +152,6 @@ pub struct SslSettings {
     /// 允许无效/不匹配的主机名（`tlsAllowInvalidHostnames`）。
     #[serde(default)]
     pub allow_invalid_hostnames: bool,
-}
-
-impl Default for SslSettings {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            allow_invalid_certs: false,
-            ca_file: None,
-            cert_file: None,
-            key_file: None,
-            use_pem: false,
-            pem_passphrase: None,
-            ask_pem_passphrase: false,
-            advanced_options: false,
-            crl_file: None,
-            allow_invalid_hostnames: false,
-        }
-    }
 }
 
 /// SSH 认证方式。
@@ -267,9 +267,7 @@ impl ConnectionSettings {
         if !cred.enabled {
             return;
         }
-        let mechanism = cred
-            .mechanism
-            .unwrap_or_else(|| default_mechanism_for_uri());
+        let mechanism = cred.mechanism.unwrap_or_else(default_mechanism_for_uri);
         // X.509 / 部分机制不需要密码
         if !mechanism.is_passwordless() && !cred.user_name.is_empty() {
             push_userinfo(uri, &cred.user_name, &cred.password);
@@ -283,7 +281,7 @@ impl ConnectionSettings {
         let mut q = Vec::new();
         if let Some(rs) = &self.replica_set_name {
             if !rs.is_empty() {
-                q.push(format!("replicaSet={}", rs));
+                q.push(format!("replicaSet={}", encode(rs)));
             }
         }
         let cred = &self.credential;
@@ -291,7 +289,10 @@ impl ConnectionSettings {
             if let Some(m) = cred.mechanism {
                 q.push(format!("authMechanism={}", m.uri_value()));
             }
-            let source = if cred.mechanism.map(|m| m.uses_external_source()).unwrap_or(false)
+            let source = if cred
+                .mechanism
+                .map(|m| m.uses_external_source())
+                .unwrap_or(false)
             {
                 "$external".to_string()
             } else if cred.auth_source.is_empty() {
@@ -299,7 +300,7 @@ impl ConnectionSettings {
             } else {
                 cred.auth_source.clone()
             };
-            q.push(format!("authSource={}", source));
+            q.push(format!("authSource={}", encode(&source)));
         }
         if self.ssl.enabled {
             q.push("tls=true".to_string());
@@ -322,7 +323,8 @@ impl ConnectionSettings {
                         q.push(format!("tlsCertificateKeyFilePassword={}", encode(pass)));
                     }
                 }
-            } else if let Some(ca) = &self.ssl.ca_file {
+            }
+            if let Some(ca) = &self.ssl.ca_file {
                 q.push(format!("tlsCAFile={}", encode(ca)));
             }
             if let Some(crl) = &self.ssl.crl_file {
@@ -343,7 +345,11 @@ impl ConnectionSettings {
     /// - 普通：多个 `host:port` 逗号拼接。
     /// - SSH 开启时：目标被改写为本地转发端口（隧道由调用方先行建立）。
     pub fn build_uri(&self) -> String {
-        let scheme = if self.use_srv { "mongodb+srv" } else { "mongodb" };
+        let scheme = if self.use_srv {
+            "mongodb+srv"
+        } else {
+            "mongodb"
+        };
         let mut uri = format!("{}://", scheme);
 
         if self.use_srv {
@@ -436,12 +442,10 @@ pub fn validate(c: &ConnectionSettings) -> RuboResult<()> {
     } else if c.hosts.is_empty() {
         return Err(crate::error::RuboError::Config("至少需要一个主机".into()));
     }
-    if c.ssh.enabled {
-        if c.ssh.host.is_empty() || c.ssh.remote_host.is_empty() {
-            return Err(crate::error::RuboError::Config(
-                "SSH 隧道需要填写跳板机与远端地址".into(),
-            ));
-        }
+    if c.ssh.enabled && (c.ssh.host.is_empty() || c.ssh.remote_host.is_empty()) {
+        return Err(crate::error::RuboError::Config(
+            "SSH 隧道需要填写跳板机与远端地址".into(),
+        ));
     }
     Ok(())
 }
@@ -465,8 +469,37 @@ mod tests {
     use crate::version::AuthMechanism;
 
     #[test]
+    fn ipv6_hosts_roundtrip() {
+        for (input, expected) in [
+            ("[::1]:27018", "[::1]:27018"),
+            ("::1", "[::1]:27017"),
+            ("[::1]", "[::1]:27017"),
+        ] {
+            assert_eq!(Host::parse(input).unwrap().to_string(), expected);
+        }
+        for input in ["localhost:0", "[::1]:0", "[invalid]:27017", "[::1]junk"] {
+            assert!(Host::parse(input).is_none());
+        }
+    }
+
+    #[test]
+    fn tls_client_certificate_keeps_ca_file() {
+        let mut c = ConnectionSettings::local_default();
+        c.ssl.enabled = true;
+        c.ssl.use_pem = true;
+        c.ssl.cert_file = Some("client.pem".into());
+        c.ssl.ca_file = Some("ca.pem".into());
+        let uri = c.build_uri();
+        assert!(uri.contains("tlsCAFile=ca.pem"));
+        assert!(uri.contains("tlsCertificateKeyFile=client.pem"));
+    }
+
+    #[test]
     fn host_parse() {
-        assert_eq!(Host::parse("localhost:27017"), Some(Host::new("localhost", 27017)));
+        assert_eq!(
+            Host::parse("localhost:27017"),
+            Some(Host::new("localhost", 27017))
+        );
         assert_eq!(Host::parse("mongo"), Some(Host::new("mongo", 27017)));
         assert_eq!(Host::parse(""), None);
     }
@@ -550,7 +583,7 @@ mod tests {
         c.credential.mechanism = Some(AuthMechanism::Plain);
         c.credential.user_name = "ldapuser".into();
         c.credential.password = "secret".into();
-        assert!(c.build_uri().contains("authSource=$external"));
+        assert!(c.build_uri().contains("authSource=%24external"));
         assert!(c.build_uri().contains("authMechanism=PLAIN"));
     }
 }

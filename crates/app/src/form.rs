@@ -402,7 +402,11 @@ impl ConnectionForm {
             self.mode = ConnectionMode::Standalone;
         } else if hosts.len() > 1 {
             self.mode = ConnectionMode::ReplicaSet;
-            self.hosts_text = hosts.iter().map(|h| h.to_string()).collect::<Vec<_>>().join("\n");
+            self.hosts_text = hosts
+                .iter()
+                .map(|h| h.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
             if let Some(first) = hosts.first() {
                 let (h, p) = first.rsplit_once(':').unwrap_or((first, "27017"));
                 self.host_input = h.to_string();
@@ -467,9 +471,7 @@ mod tests {
             ..Default::default()
         };
 
-        form.apply_uri(
-            "mongodb://user:pass@first.example:27017,second.example:27017/dev",
-        );
+        form.apply_uri("mongodb://user:pass@first.example:27017,second.example:27017/dev");
 
         let settings = form.to_settings();
         assert_eq!(settings.hosts.len(), 2);

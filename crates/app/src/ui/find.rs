@@ -54,7 +54,10 @@ fn buffer_text(state: &AppState, target: FindTarget) -> String {
 ///
 /// 仅当查找弹窗打开且作用在该目标时返回真实命中，否则返回空（不高亮）。
 /// 供各 `TextEdit` 的 layouter 调用，把命中区段着色（白底红字 / 其余弱高亮）。
-pub fn highlight_ranges(state: &AppState, target: FindTarget) -> (Vec<(usize, usize)>, Option<usize>) {
+pub fn highlight_ranges(
+    state: &AppState,
+    target: FindTarget,
+) -> (Vec<(usize, usize)>, Option<usize>) {
     if state.find.open && state.find.active == target && !state.find.matches.is_empty() {
         (state.find.matches.clone(), Some(state.find.current))
     } else {
@@ -99,7 +102,12 @@ fn goto(ctx: &Context, state: &mut AppState, target: FindTarget, start: usize) {
 /// 不依赖焦点，也不依赖 `output.cursor_range`（后者仅在 TextEdit 聚焦时才非 None）。
 /// 注意：本函数依赖各文本区被 `ScrollArea` 包裹（见 `workspace.rs` / `result_view.rs` /
 /// `dialogs.rs`），否则 `scroll_to_rect` 没有可滚动的父容器，便不会发生滚动。
-pub fn after_show_scroll(ui: &Ui, state: &mut AppState, target: FindTarget, output: &TextEditOutput) {
+pub fn after_show_scroll(
+    ui: &Ui,
+    state: &mut AppState,
+    target: FindTarget,
+    output: &TextEditOutput,
+) {
     if state.find.pending_scroll != Some(target) {
         return;
     }
@@ -262,7 +270,12 @@ pub fn render(ctx: &Context, state: &mut AppState) {
                     format!("无匹配: {}", state.find.query)
                 }
             } else {
-                format!("{}/{}  \"{}\"", state.find.current + 1, total, state.find.query)
+                format!(
+                    "{}/{}  \"{}\"",
+                    state.find.current + 1,
+                    total,
+                    state.find.query
+                )
             };
             ui.label(label);
         });

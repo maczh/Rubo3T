@@ -82,7 +82,7 @@ pub fn apply_robo_theme(ctx: &egui::Context) {
     visuals.hyperlink_color = Color32::from_rgb(0, 120, 215);
 
     // 选中高亮（树/表格行/列表）：蓝色背景
-    visuals.selection.bg_fill = Color32::from_rgb(56, 142, 194);
+    visuals.selection.bg_fill = Color32::from_rgb(30, 104, 160);
     // egui 0.29 用 selection.stroke 作为选中态文字颜色 → 设为白色得到白字蓝底
     visuals.selection.stroke = Stroke::new(1.0_f32, Color32::WHITE);
 
@@ -104,14 +104,25 @@ pub fn apply_robo_theme(ctx: &egui::Context) {
     widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(120, 170, 210));
     widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0, 0, 0));
     // 按下/激活：更蓝
-    widgets.active.bg_fill = Color32::from_rgb(56, 142, 194);
-    widgets.active.weak_bg_fill = Color32::from_rgb(56, 142, 194);
+    widgets.active.bg_fill = Color32::from_rgb(186, 212, 236);
+    widgets.active.weak_bg_fill = Color32::from_rgb(186, 212, 236);
     widgets.active.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(40, 120, 170));
-    widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
+    widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(30, 45, 60));
     // 打开的菜单（combo 等）沿用悬停配色
-    widgets.open = widgets.hovered.clone();
+    widgets.open = widgets.hovered;
 
     visuals.widgets = widgets;
 
     ctx.set_visuals(visuals);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn emphasis_text_is_readable_on_light_headers() {
+        let ctx = egui::Context::default();
+        super::apply_robo_theme(&ctx);
+        let color = ctx.style().visuals.strong_text_color();
+        assert!(color.r() < 80 && color.g() < 80 && color.b() < 80);
+    }
 }
