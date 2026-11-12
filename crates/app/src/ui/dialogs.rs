@@ -1095,7 +1095,8 @@ fn dark_editor(ui: &mut Ui, state: &mut AppState) {
             let mut layouter = |ui: &Ui, t: &str, w: f32| {
                 syntax::highlight_with_find(ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current)
             };
-            let resp = ScrollArea::vertical().show(ui, |ui| {
+            let resp = ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                ui.set_min_size(Vec2::new(avail, ui.available_height().max(1.0)));
                 let edit = TextEdit::multiline(&mut state.selected_doc_text)
                     .code_editor()
                     .text_color(TEXT_COLOR)
@@ -1140,8 +1141,13 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
         .resizable(true)
         .default_size([w, h])
         .show(ctx, |ui| {
-            dark_editor(ui, state);
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(ui.available_width(), (ui.available_height() - 36.0).max(1.0)),
+                    Layout::top_down(Align::Min),
+                    |ui| dark_editor(ui, state),
+                );
+                ui.horizontal(|ui| {
                 if ui.button(lang.tr("doc.validate")).clicked() {
                     validate = true;
                 }
@@ -1151,6 +1157,7 @@ fn render_edit_document(ctx: &Context, state: &mut AppState) {
                 if primary_button(ui, None, lang.tr("common.save")) {
                     save = true;
                 }
+                });
             });
         });
     state.edit_doc_open = edit_open;
@@ -1189,8 +1196,13 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
         .resizable(true)
         .default_size([w, h])
         .show(ctx, |ui| {
-            dark_editor(ui, state);
-            ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(ui.available_width(), (ui.available_height() - 36.0).max(1.0)),
+                    Layout::top_down(Align::Min),
+                    |ui| dark_editor(ui, state),
+                );
+                ui.horizontal(|ui| {
                 if ui.button(lang.tr("doc.validate")).clicked() {
                     validate = true;
                 }
@@ -1200,6 +1212,7 @@ fn render_insert_document(ctx: &Context, state: &mut AppState) {
                 if primary_button(ui, None, lang.tr("common.save")) {
                     save = true;
                 }
+                });
             });
         });
     state.insert_doc_open = insert_open;
@@ -1311,7 +1324,11 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
         .show(ctx, |ui| {
             let avail = ui.available_width();
             let mut text = state.view_doc_text.clone();
-            Frame::none()
+            ui.vertical(|ui| {
+            ui.allocate_ui_with_layout(
+                Vec2::new(ui.available_width(), (ui.available_height() - 36.0).max(1.0)),
+                Layout::top_down(Align::Min),
+                |ui| Frame::none()
                 .fill(TEXTBOX_BG)
                 .rounding(Rounding::same(2.0))
                 .inner_margin(Margin::same(4.0))
@@ -1324,7 +1341,8 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
                             ui, t, w, TEXT_COLOR, TEXT_STR, &fm_ranges, fm_current,
                         )
                     };
-                    ScrollArea::vertical().show(ui, |ui| {
+                    ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+                        ui.set_min_size(Vec2::new(avail, ui.available_height().max(1.0)));
                         let edit = TextEdit::multiline(&mut text)
                             .code_editor()
                             .text_color(TEXT_COLOR)
@@ -1337,12 +1355,14 @@ fn render_view_document(ctx: &Context, state: &mut AppState) {
                         let fctx = ui.ctx().clone();
                         find::handle_hotkey(&fctx, state, FindTarget::ViewDoc, &output.response);
                     });
-                });
+                }),
+            );
             state.view_doc_text = text;
             ui.horizontal(|ui| {
                 if ui.button(lang.tr("common.close")).clicked() {
                     close = true;
                 }
+            });
             });
         });
     state.view_doc_open = view_open;
