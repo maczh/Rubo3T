@@ -20,8 +20,8 @@ use rubo3t_core::bson::Bson;
 /// 脚本编辑器 / 文本视图的深色背景（#3D3F41）；文字颜色由 [`syntax`] 高亮提供。
 const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
 const TEXT_COLOR: Color32 = Color32::from_rgb(0xA1, 0xFC, 0xA2);
-/// 文本视图中字符串（引号内）的绿色高亮，由用户指定为 #14A601。
-const TEXT_STR: Color32 = Color32::from_rgb(0x14, 0xA6, 0x01);
+/// 文本视图中字符串（引号内）的绿色高亮，由用户指定为 #00E59D。
+const TEXT_STR: Color32 = Color32::from_rgb(0x00, 0xE5, 0x9D);
 const TEXTBOX_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
 /// 表头背景（浅灰）与列分隔线。
 const HEADER_BG: Color32 = Color32::from_rgb(0xE8, 0xE8, 0xE8);

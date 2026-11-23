@@ -41,9 +41,9 @@ const COL2_W: f32 = 98.0;
 const CONNECTION_ROW_HEIGHT: f32 = 22.0;
 
 /// 文本视图配色（与 `result_view::text_view` 保持一致）：
-/// 普通文字 #14A601、字符串高亮 #14A601、文本框背景 #494C4E、编辑器内底色 #3D3F41。
+/// 普通文字 #14A601、字符串高亮 #00E59D、文本框背景 #494C4E、编辑器内底色 #3D3F41。
 const TEXT_COLOR: Color32 = Color32::from_rgb(0xA1, 0xFC, 0xA2);
-const TEXT_STR: Color32 = Color32::from_rgb(0x14, 0xA6, 0x01);
+const TEXT_STR: Color32 = Color32::from_rgb(0x00, 0xE5, 0x9D);
 const TEXTBOX_BG: Color32 = Color32::from_rgb(0x49, 0x4C, 0x4E);
 const SCRIPT_BG: Color32 = Color32::from_rgb(0x3D, 0x3F, 0x41);
 
